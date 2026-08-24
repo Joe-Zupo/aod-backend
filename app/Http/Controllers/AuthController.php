@@ -25,49 +25,63 @@ class AuthController extends Controller
     {
         $validated = $request->validated();
 
-        [$user, $team] = DB::transaction(function () use ($validated): array {
+        [$user, $team, $membershipStatus] = DB::transaction(function () use ($validated): array {
             $user = User::create([
                 'username' => $validated['username'],
                 'email' => $validated['email'],
                 'password' => $validated['password'],
                 'riot_id' => $validated['riot_id'] ?? null,
+                'user_code' => User::generateUserCode($validated['role']),
             ]);
 
             $user->assignRole($validated['role']);
 
             $team = null;
-            if (($validated['team_action'] ?? null) === 'create') {
-                $team = Team::create([
-                    'team_code' => $this->generateTeamCode(),
-                    'team_name' => $validated['team_name'],
-                ]);
-            }
+            $membershipStatus = null;
 
-            if (isset($validated['team_code'])) {
-                $team = Team::where('team_code', Str::upper($validated['team_code']))->first();
+            if (($validated['team_action'] ?? null) === 'create') {
+                $team = new Team([
+                    'team_name' => $validated['team_name'],
+                    'description' => $validated['description'] ?? null,
+                ]);
+                $team->team_code = Team::generateTeamCode();
+                $team->save();
+
+                $team->members()->attach($user->id, [
+                    'member_role' => 'main_coach',
+                    'status' => 'active',
+                    'joined_at' => now(),
+                    'decided_by' => $user->id,
+                    'decided_at' => now(),
+                ]);
+                $membershipStatus = 'active';
+            } elseif (isset($validated['team_code'])) {
+                $team = Team::where('team_code', Str::upper($validated['team_code']))
+                    ->whereNull('disbanded_at')
+                    ->first();
 
                 if (! $team) {
                     throw ValidationException::withMessages([
                         'team_code' => ['The provided team code does not exist.'],
                     ]);
                 }
-            }
 
-            if ($team) {
                 $team->members()->attach($user->id, [
-                    'joined_at' => now(),
-                    'is_active' => true,
+                    'member_role' => $validated['role'] === 'Player' ? 'player' : 'assistant_coach',
+                    'status' => 'pending',
                 ]);
+                $membershipStatus = 'pending';
             }
 
-            return [$user, $team];
+            return [$user, $team, $membershipStatus];
         });
 
-        $user->load(['roles', 'teams']);
+        $user->load(['roles', 'activeTeams']);
 
         return $this->success('Registration successful.', [
             'user' => new UserResource($user),
             'team' => $team ? new TeamResource($team) : null,
+            'team_membership_status' => $membershipStatus,
             'token' => $user->createToken('auth-token')->plainTextToken,
         ], 201);
     }
@@ -92,7 +106,7 @@ class AuthController extends Controller
             ]);
         }
 
-        $user->load(['roles', 'teams']);
+        $user->load(['roles', 'activeTeams']);
 
         return $this->success('Login successful.', [
             'user' => new UserResource($user),
@@ -120,19 +134,7 @@ class AuthController extends Controller
     public function user(Request $request): JsonResponse
     {
         return $this->success('Authenticated user retrieved.', [
-            'user' => new UserResource($request->user()->load(['roles', 'teams'])),
+            'user' => new UserResource($request->user()->load(['roles', 'activeTeams'])),
         ]);
-    }
-
-    /**
-     * Create a unique, shareable code for a newly created team.
-     */
-    private function generateTeamCode(): string
-    {
-        do {
-            $teamCode = Str::upper(Str::random(8));
-        } while (Team::where('team_code', $teamCode)->exists());
-
-        return $teamCode;
     }
 }
