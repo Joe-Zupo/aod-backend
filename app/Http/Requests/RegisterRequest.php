@@ -16,19 +16,20 @@ class RegisterRequest extends FormRequest
     {
         $role = $this->input('role');
         $teamAction = $this->input('team_action');
-        $requiresTeamChoice = in_array($role, ['Coach', 'Team Leader'], true);
-        $requiresRiotId = in_array($role, ['Player', 'Team Leader'], true);
-        $requiresTeamCode = $role === 'Player' || ($requiresTeamChoice && $teamAction === 'join');
+        $isCreating = $teamAction === 'create';
 
         return [
             'username' => ['required', 'string', 'min:3', 'max:255', 'unique:users,username'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
-            'role' => ['required', 'string', Rule::in(['Coach', 'Team Leader', 'Player'])],
-            'riot_id' => [Rule::requiredIf($requiresRiotId), Rule::prohibitedIf($role === 'Coach'), 'nullable', 'string', 'max:255', 'unique:users,riot_id'],
-            'team_action' => [Rule::requiredIf($requiresTeamChoice), 'nullable', Rule::in(['create', 'join'])],
-            'team_name' => [Rule::requiredIf($requiresTeamChoice && $teamAction === 'create'), 'nullable', 'string', 'max:255', 'unique:teams,team_name'],
-            'team_code' => [Rule::requiredIf($requiresTeamCode), Rule::prohibitedIf($requiresTeamChoice && $teamAction === 'create'), 'nullable', 'string', 'max:32'],
+            'role' => ['required', 'string', Rule::in(['Coach', 'Player'])],
+            'riot_id' => [Rule::requiredIf($role === 'Player'), Rule::prohibitedIf($role === 'Coach'), 'nullable', 'string', 'max:255', 'unique:users,riot_id'],
+            // Team involvement is entirely optional at registration: omit both team_action and
+            // team_code to register without a team and join one later.
+            'team_action' => [Rule::prohibitedIf($role !== 'Coach'), 'nullable', Rule::in(['create'])],
+            'team_name' => [Rule::requiredIf($isCreating), Rule::prohibitedIf(! $isCreating), 'nullable', 'string', 'max:255', 'unique:teams,team_name'],
+            'description' => [Rule::prohibitedIf(! $isCreating), 'nullable', 'string'],
+            'team_code' => [Rule::prohibitedIf($isCreating), 'nullable', 'string', 'max:32'],
         ];
     }
 }

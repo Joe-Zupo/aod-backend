@@ -17,7 +17,7 @@ class AuthControllerTest extends TestCase
     {
         parent::setUp();
 
-        foreach (['Coach', 'Team Leader', 'Player'] as $role) {
+        foreach (['Coach', 'Player'] as $role) {
             Role::create(['name' => $role, 'guard_name' => 'web']);
         }
     }
@@ -39,6 +39,7 @@ class AuthControllerTest extends TestCase
             ->assertJsonPath('data.user.email', 'player@example.com')
             ->assertJsonPath('data.user.roles.0', 'Coach')
             ->assertJsonPath('data.team.team_name', 'Aces of Dawn')
+            ->assertJsonPath('data.team_membership_status', 'active')
             ->assertJsonStructure(['data' => ['team' => ['team_code']]])
             ->assertJsonPath('code', 201)
             ->assertJsonPath('error', false)
@@ -49,8 +50,31 @@ class AuthControllerTest extends TestCase
             'email' => 'player@example.com',
         ]);
         $this->assertTrue(Hash::check('password123', User::firstOrFail()->password));
+        $this->assertStringStartsWith('CH-', User::firstOrFail()->user_code);
+        $this->assertStringStartsWith('TM-', $response->json('data.team.team_code'));
         $this->assertDatabaseCount('teams', 1);
-        $this->assertDatabaseCount('team_members', 1);
+        $this->assertDatabaseHas('team_members', [
+            'member_role' => 'main_coach',
+            'status' => 'active',
+        ]);
+    }
+
+    public function test_user_can_register_without_choosing_a_team(): void
+    {
+        $response = $this->postJson('/api/register', [
+            'username' => 'coach-solo',
+            'email' => 'coach-solo@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'role' => 'Coach',
+        ]);
+
+        $response->assertCreated()
+            ->assertJsonPath('data.team', null)
+            ->assertJsonPath('data.team_membership_status', null);
+
+        $this->assertDatabaseCount('teams', 0);
+        $this->assertDatabaseCount('team_members', 0);
     }
 
     public function test_coach_cannot_submit_riot_id_or_team_code_when_creating_a_team(): void
@@ -71,13 +95,41 @@ class AuthControllerTest extends TestCase
             ->assertJsonStructure(['data' => ['errors' => ['riot_id', 'team_code']]]);
     }
 
-    public function test_player_can_register_with_a_riot_id_and_existing_team_code(): void
+    public function test_player_registering_with_a_team_code_creates_a_pending_request(): void
     {
-        $team = Team::create([
-            'team_code' => 'JOIN1234',
-            'team_name' => 'Aces of Dawn',
+        $team = new Team(['team_name' => 'Aces of Dawn']);
+        $team->team_code = 'TM-JOIN1234';
+        $team->save();
+
+        $response = $this->postJson('/api/register', [
+            'username' => 'player-one',
+            'email' => 'player@example.com',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+            'role' => 'Player',
+            'riot_id' => 'PlayerOne#APAC',
+            'team_code' => 'tm-join1234',
         ]);
 
+        $response->assertCreated()
+            ->assertJsonPath('data.user.riot_id', 'PlayerOne#APAC')
+            ->assertJsonPath('data.user.roles.0', 'Player')
+            ->assertJsonPath('data.team.id', $team->id)
+            ->assertJsonPath('data.team_membership_status', 'pending')
+            ->assertJsonPath('data.team.team_code', 'TM-JOIN1234');
+
+        $this->assertStringStartsWith('PL-', User::firstOrFail()->user_code);
+        $this->assertDatabaseHas('team_members', [
+            'team_id' => $team->id,
+            'member_role' => 'player',
+            'status' => 'pending',
+        ]);
+        // Not yet an active member, so it shouldn't show up under active teams.
+        $this->assertEmpty($response->json('data.user.teams'));
+    }
+
+    public function test_player_cannot_create_a_team(): void
+    {
         $this->postJson('/api/register', [
             'username' => 'player-one',
             'email' => 'player@example.com',
@@ -85,30 +137,10 @@ class AuthControllerTest extends TestCase
             'password_confirmation' => 'password123',
             'role' => 'Player',
             'riot_id' => 'PlayerOne#APAC',
-            'team_code' => 'join1234',
-        ])->assertCreated()
-            ->assertJsonPath('data.user.riot_id', 'PlayerOne#APAC')
-            ->assertJsonPath('data.user.roles.0', 'Player')
-            ->assertJsonPath('data.team.id', $team->id);
-
-        $this->assertDatabaseHas('team_members', [
-            'team_id' => $team->id,
-            'is_active' => true,
-        ]);
-    }
-
-    public function test_team_leader_must_supply_riot_id_and_team_choice(): void
-    {
-        $this->postJson('/api/register', [
-            'username' => 'leader-one',
-            'email' => 'leader@example.com',
-            'password' => 'password123',
-            'password_confirmation' => 'password123',
-            'role' => 'Team Leader',
+            'team_action' => 'create',
+            'team_name' => 'Aces of Dawn',
         ])->assertUnprocessable()
-            ->assertJsonPath('code', 422)
-            ->assertJsonPath('error', true)
-            ->assertJsonStructure(['data' => ['errors' => ['riot_id', 'team_action']]]);
+            ->assertJsonStructure(['data' => ['errors' => ['team_action']]]);
     }
 
     public function test_user_can_log_in_with_valid_credentials(): void
@@ -116,6 +148,7 @@ class AuthControllerTest extends TestCase
         User::create([
             'username' => 'player-one',
             'email' => 'player@example.com',
+            'user_code' => 'PL-TESTCODE',
             'password' => 'password123',
         ]);
 
@@ -134,6 +167,7 @@ class AuthControllerTest extends TestCase
         User::create([
             'username' => 'player-one',
             'email' => 'player@example.com',
+            'user_code' => 'PL-TESTCODE',
             'password' => 'password123',
         ]);
 
@@ -151,6 +185,7 @@ class AuthControllerTest extends TestCase
         $user = User::create([
             'username' => 'player-one',
             'email' => 'player@example.com',
+            'user_code' => 'PL-TESTCODE',
             'password' => 'password123',
         ]);
         $token = $user->createToken('auth-token');

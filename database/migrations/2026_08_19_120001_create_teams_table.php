@@ -13,6 +13,7 @@ return new class extends Migration
             $table->string('team_code', 16)->unique();
             $table->string('team_name');
             $table->text('description')->nullable();
+            $table->timestamp('disbanded_at')->nullable();
             $table->timestamps();
         });
     }

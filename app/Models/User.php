@@ -9,16 +9,20 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Http\Request;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
-#[Fillable(['username', 'email', 'password', 'riot_id'])]
+#[Fillable(['username', 'email', 'password', 'riot_id', 'user_code'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, HasRoles, Notifiable;
+
+    public const TEAM_MANAGEMENT_ROLES = ['main_coach'];
 
     /**
      * Get the attributes that should be cast.
@@ -30,6 +34,7 @@ class User extends Authenticatable
         'email',
         'password',
         'riot_id',
+        'user_code',
     ];
 
     protected function casts(): array
@@ -43,7 +48,55 @@ class User extends Authenticatable
     public function teams(): BelongsToMany
     {
         return $this->belongsToMany(Team::class, 'team_members')
-            ->withPivot(['is_active', 'joined_at', 'left_at'])
+            ->withPivot(['member_role', 'status', 'decided_by', 'decided_at', 'joined_at', 'left_at'])
             ->withTimestamps();
+    }
+
+    /**
+     * Get the teams the user can currently access.
+     */
+    public function activeTeams(): BelongsToMany
+    {
+        return $this->teams()->wherePivot('status', 'active');
+    }
+
+    /**
+     * Get the team the user currently has an active membership or pending request with, if any.
+     */
+    public function pendingOrActiveTeams(): BelongsToMany
+    {
+        return $this->teams()->wherePivotIn('status', ['pending', 'active']);
+    }
+
+    /**
+     * Resolve the team a request should act on: the `?team=` query parameter if
+     * given, otherwise the user's own current active team. Lets every team-scoped
+     * route omit the team id entirely and default to "my team".
+     */
+    public function resolveTeam(Request $request): Team
+    {
+        $teamId = $request->query('team');
+
+        $team = $teamId !== null
+            ? Team::find($teamId)
+            : $this->activeTeams()->first();
+
+        abort_if(! $team, 404, 'Team not found.');
+
+        return $team;
+    }
+
+    /**
+     * Generate a unique user code prefixed according to the user's registration role.
+     */
+    public static function generateUserCode(string $role): string
+    {
+        $prefix = $role === 'Coach' ? 'CH' : 'PL';
+
+        do {
+            $code = $prefix.'-'.Str::upper(Str::random(8));
+        } while (static::where('user_code', $code)->exists());
+
+        return $code;
     }
 }

@@ -12,12 +12,16 @@ return new class extends Migration
             $table->id();
             $table->foreignId('team_id')->constrained()->cascadeOnDelete();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->timestamp('joined_at')->useCurrent();
+            $table->string('member_role', 32)->default('player');
+            $table->string('status', 16)->default('pending');
+            $table->foreignId('decided_by')->nullable()->constrained('users')->nullOnDelete();
+            $table->timestamp('decided_at')->nullable();
+            $table->timestamp('joined_at')->nullable();
             $table->timestamp('left_at')->nullable();
-            $table->boolean('is_active')->default(true);
             $table->timestamps();
 
             $table->unique(['team_id', 'user_id']);
+            $table->index(['team_id', 'member_role', 'status']);
         });
     }
 
