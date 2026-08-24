@@ -24,6 +24,8 @@ class User extends Authenticatable
 
     public const TEAM_MANAGEMENT_ROLES = ['main_coach'];
 
+    public const TEAM_COACH_ROLES = ['main_coach', 'assistant_coach'];
+
     /**
      * Get the attributes that should be cast.
      *
@@ -66,6 +68,16 @@ class User extends Authenticatable
     public function pendingOrActiveTeams(): BelongsToMany
     {
         return $this->teams()->wherePivotIn('status', ['pending', 'active']);
+    }
+
+    /**
+     * The user's member_role on their active membership for the given team, or
+     * null if they have no active membership there. Shared by policies that
+     * gate on team-scoped roles.
+     */
+    public function teamRole(Team $team): ?string
+    {
+        return $this->activeTeams()->whereKey($team->id)->first()?->pivot->member_role;
     }
 
     /**

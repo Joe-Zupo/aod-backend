@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\TeamController;
+use App\Http\Controllers\TeamSettingsController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -28,5 +29,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/teams/leave', [TeamController::class, 'leave']);
     Route::get('/teams/join-requests', [TeamController::class, 'joinRequests']);
     Route::put('/teams/join-requests/{user}', [TeamController::class, 'decideJoinRequest']);
+    Route::get('/teams/settings', [TeamSettingsController::class, 'show']);
+    Route::put('/teams/settings', [TeamSettingsController::class, 'update']);
 
 });

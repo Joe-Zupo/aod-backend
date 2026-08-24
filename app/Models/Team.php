@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 
 class Team extends Model
@@ -21,6 +22,18 @@ class Team extends Model
         return [
             'disbanded_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::created(function (Team $team): void {
+            $team->settings()->create(['dead_air_threshold_ms' => 5000]);
+        });
+    }
+
+    public function settings(): HasOne
+    {
+        return $this->hasOne(TeamSettings::class);
     }
 
     public function members(): BelongsToMany

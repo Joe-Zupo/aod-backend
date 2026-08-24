@@ -33,14 +33,11 @@ class TeamPolicy
 
     private function isActiveMember(User $user, Team $team): bool
     {
-        return $user->activeTeams()->whereKey($team->id)->exists();
+        return $user->teamRole($team) !== null;
     }
 
     private function hasManagementRole(User $user, Team $team): bool
     {
-        return $user->activeTeams()
-            ->whereKey($team->id)
-            ->wherePivotIn('member_role', User::TEAM_MANAGEMENT_ROLES)
-            ->exists();
+        return in_array($user->teamRole($team), User::TEAM_MANAGEMENT_ROLES, true);
     }
 }
