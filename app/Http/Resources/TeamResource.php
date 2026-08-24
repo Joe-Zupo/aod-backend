@@ -15,7 +15,10 @@ class TeamResource extends JsonResource
             'id' => $this->id,
             'team_code' => $this->team_code,
             'team_name' => $this->team_name,
+            'description' => $this->description,
+            'disbanded_at' => $this->disbanded_at,
             'created_at' => $this->created_at,
+            'members' => TeamMemberResource::collection($this->whenLoaded('activeMembers')),
         ];
     }
 }

@@ -7,19 +7,17 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /** @mixin User */
-class UserResource extends JsonResource
+class TeamMemberResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
         return [
             'id' => $this->id,
             'username' => $this->username,
-            'email' => $this->email,
             'user_code' => $this->user_code,
-            'riot_id' => $this->riot_id,
-            'roles' => $this->whenLoaded('roles', fn () => $this->getRoleNames()->values()),
-            'teams' => TeamResource::collection($this->whenLoaded('activeTeams')),
-            'created_at' => $this->created_at,
+            'member_role' => $this->pivot->member_role,
+            'status' => $this->pivot->status,
+            'joined_at' => $this->pivot->joined_at,
         ];
     }
 }
