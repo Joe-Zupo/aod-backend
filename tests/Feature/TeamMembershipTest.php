@@ -152,6 +152,23 @@ class TeamMembershipTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_player_cannot_manage_join_requests_or_remove_members(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+        $player = User::factory()->create();
+        $player->assignRole('Player');
+        $team->members()->attach($player, ['member_role' => 'player', 'status' => 'active', 'joined_at' => now()]);
+        $otherPlayer = User::factory()->create();
+        $otherPlayer->assignRole('Player');
+        $team->members()->attach($otherPlayer, ['member_role' => 'player', 'status' => 'active', 'joined_at' => now()]);
+
+        $this->actingAs($player, 'sanctum')->getJson('/api/teams/join-requests')
+            ->assertForbidden();
+
+        $this->actingAs($player, 'sanctum')->deleteJson("/api/teams/members/{$otherPlayer->id}")
+            ->assertForbidden();
+    }
+
     public function test_main_coach_can_remove_a_player_returning_them_to_teamless_state(): void
     {
         [$team, $coach] = $this->makeTeamWithMainCoach();

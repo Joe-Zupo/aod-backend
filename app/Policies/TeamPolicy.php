@@ -22,7 +22,9 @@ class TeamPolicy
 
     /**
      * Only the main coach can manage membership: view and decide join requests, and
-     * remove members. Assistant coaches are excluded by design.
+     * remove members. Assistant coaches are excluded by design. member_role is the
+     * only place this per-team distinction exists (spatie roles are global), so
+     * this one check reads it directly rather than being spatie-driven.
      */
     public function manageMembers(User $user, Team $team): bool
     {
