@@ -12,7 +12,7 @@ class RolePermissionSeeder extends Seeder
      */
     public function run(): void
     {
-        foreach (['Coach', 'Team Leader', 'Player'] as $name) {
+        foreach (['Coach', 'Player'] as $name) {
             Role::firstOrCreate([
                 'name' => $name,
                 'guard_name' => 'web',
