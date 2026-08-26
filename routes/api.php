@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\SessionController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TeamSettingsController;
 use App\Http\Controllers\UserController;
@@ -31,5 +32,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/teams/join-requests/{user}', [TeamController::class, 'decideJoinRequest']);
     Route::get('/teams/settings', [TeamSettingsController::class, 'show']);
     Route::put('/teams/settings', [TeamSettingsController::class, 'update']);
+
+    // Session routes use explicit route-model binding and authorize directly
+    // against {session}'s team via SessionPolicy, deliberately not the
+    // resolveTeam()-style "my active team" implicit helper used above.
+    Route::get('/teams/{team}/sessions', [SessionController::class, 'index']);
+    Route::post('/teams/{team}/sessions', [SessionController::class, 'store']);
+    Route::get('/sessions/{session}', [SessionController::class, 'show']);
+    Route::post('/sessions/{session}/join', [SessionController::class, 'join']);
 
 });
