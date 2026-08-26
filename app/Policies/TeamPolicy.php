@@ -4,20 +4,21 @@ namespace App\Policies;
 
 use App\Models\Team;
 use App\Models\User;
+use App\Policies\Concerns\ChecksTeamRole;
 use Illuminate\Auth\Access\Response;
 
 class TeamPolicy
 {
+    use ChecksTeamRole;
+
     public function view(User $user, Team $team): Response
     {
-        return $this->isActiveMember($user, $team)
-            ? Response::allow()
-            : Response::denyAsNotFound();
+        return $this->isActiveMember($user, $team);
     }
 
-    public function update(User $user, Team $team): bool
+    public function update(User $user, Team $team): Response
     {
-        return $this->hasManagementRole($user, $team);
+        return $this->isMainCoach($user, $team);
     }
 
     /**
@@ -26,18 +27,8 @@ class TeamPolicy
      * only place this per-team distinction exists (spatie roles are global), so
      * this one check reads it directly rather than being spatie-driven.
      */
-    public function manageMembers(User $user, Team $team): bool
+    public function manageMembers(User $user, Team $team): Response
     {
-        return $this->hasManagementRole($user, $team);
-    }
-
-    private function isActiveMember(User $user, Team $team): bool
-    {
-        return $user->teamRole($team) !== null;
-    }
-
-    private function hasManagementRole(User $user, Team $team): bool
-    {
-        return in_array($user->teamRole($team), User::TEAM_MANAGEMENT_ROLES, true);
+        return $this->isMainCoach($user, $team);
     }
 }
