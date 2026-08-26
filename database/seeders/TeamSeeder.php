@@ -5,29 +5,32 @@ namespace Database\Seeders;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 
 class TeamSeeder extends Seeder
 {
     /**
      * Seed a demo team with a main coach, an assistant coach, and 5 players.
-     * All passwords match the username (e.g. maincoach / maincoach).
+     * All passwords match the username (e.g. maincoach / maincoach). Skips if
+     * the demo team already exists, so re-running the seeder is a no-op
+     * instead of failing on duplicate users partway through.
      */
     public function run(): void
     {
-        $team = new Team(['team_name' => 'Thunderbolts']);
-        $team->team_code = Team::generateTeamCode();
-        $team->save();
+        DB::transaction(function (): void {
+            $team = Team::create(['team_name' => 'Thunderbolts']);
 
-        $mainCoach = $this->createUser('maincoach', 'Coach');
-        $this->attach($team, $mainCoach, 'main_coach', $mainCoach);
+            $mainCoach = $this->createUser('maincoach', 'Coach');
+            $this->attach($team, $mainCoach, 'main_coach', $mainCoach);
 
-        $assistantCoach = $this->createUser('assistantcoach', 'Coach');
-        $this->attach($team, $assistantCoach, 'assistant_coach', $mainCoach);
+            $assistantCoach = $this->createUser('assistantcoach', 'Coach');
+            $this->attach($team, $assistantCoach, 'assistant_coach', $mainCoach);
 
-        for ($i = 1; $i <= 5; $i++) {
-            $player = $this->createUser("player{$i}", 'Player');
-            $this->attach($team, $player, 'player', $mainCoach);
-        }
+            for ($i = 1; $i <= 5; $i++) {
+                $player = $this->createUser("player{$i}", 'Player');
+                $this->attach($team, $player, 'player', $mainCoach);
+            }
+        });
     }
 
     private function createUser(string $username, string $role): User

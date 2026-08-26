@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Team;
+use App\Models\TeamKeyword;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
@@ -26,9 +27,7 @@ class TeamSettingsTest extends TestCase
         $coach = User::factory()->create();
         $coach->assignRole('Coach');
 
-        $team = new Team(['team_name' => 'Aces of Dawn']);
-        $team->team_code = 'TM-AODTEAM1';
-        $team->save();
+        $team = Team::create(['team_name' => 'Aces of Dawn', 'team_code' => 'TM-AODTEAM1']);
 
         $team->members()->attach($coach, [
             'member_role' => 'main_coach',
@@ -43,13 +42,12 @@ class TeamSettingsTest extends TestCase
 
     public function test_creating_a_team_creates_its_team_settings_with_default_threshold(): void
     {
-        $team = new Team(['team_name' => 'Aces of Dawn']);
-        $team->team_code = 'TM-AODTEAM1';
-        $team->save();
+        $team = Team::create(['team_name' => 'Aces of Dawn', 'team_code' => 'TM-AODTEAM1']);
 
         $this->assertDatabaseHas('team_settings', [
             'team_id' => $team->id,
-            'dead_air_threshold_ms' => 5000,
+            'setting_name' => 'dead_air_threshold',
+            'setting_parameter' => 5000,
         ]);
     }
 
@@ -57,10 +55,15 @@ class TeamSettingsTest extends TestCase
     {
         [$team, $coach] = $this->makeTeamWithMainCoach();
 
-        $this->actingAs($coach, 'sanctum')->getJson('/api/teams/settings')
+        $response = $this->actingAs($coach, 'sanctum')->getJson('/api/teams/settings')
             ->assertOk()
             ->assertJsonPath('data.settings.team_id', $team->id)
-            ->assertJsonPath('data.settings.dead_air_threshold_ms', 5000);
+            ->assertJsonPath('data.settings.dead_air_threshold_ms', 5000)
+            ->assertJsonCount(count(TeamKeyword::DEFAULT_INFORMATIVE_KEYWORDS), 'data.settings.informative_keywords')
+            ->assertJsonCount(count(TeamKeyword::DEFAULT_DECLARATIVE_KEYWORDS), 'data.settings.declarative_keywords');
+
+        $this->assertContains('planted', $response->json('data.settings.informative_keywords'));
+        $this->assertContains('flashing', $response->json('data.settings.declarative_keywords'));
     }
 
     public function test_assistant_coach_can_view_team_settings(): void
@@ -107,7 +110,8 @@ class TeamSettingsTest extends TestCase
 
         $this->assertDatabaseHas('team_settings', [
             'team_id' => $team->id,
-            'dead_air_threshold_ms' => 8000,
+            'setting_name' => 'dead_air_threshold',
+            'setting_parameter' => 8000,
         ]);
     }
 
@@ -137,8 +141,21 @@ class TeamSettingsTest extends TestCase
 
         $this->assertDatabaseHas('team_settings', [
             'team_id' => $team->id,
-            'dead_air_threshold_ms' => 5000,
+            'setting_name' => 'dead_air_threshold',
+            'setting_parameter' => 5000,
         ]);
+    }
+
+    public function test_player_gets_forbidden_not_a_validation_error_for_an_invalid_update_payload(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+        $player = User::factory()->create();
+        $player->assignRole('Player');
+        $team->members()->attach($player, ['member_role' => 'player', 'status' => 'active', 'joined_at' => now()]);
+
+        $this->actingAs($player, 'sanctum')
+            ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 'not-a-number'])
+            ->assertForbidden();
     }
 
     public function test_outsider_cannot_update_team_settings(): void
@@ -158,9 +175,7 @@ class TeamSettingsTest extends TestCase
 
         $otherCoach = User::factory()->create();
         $otherCoach->assignRole('Coach');
-        $otherTeam = new Team(['team_name' => 'Second Team']);
-        $otherTeam->team_code = 'TM-SECOND01';
-        $otherTeam->save();
+        $otherTeam = Team::create(['team_name' => 'Second Team', 'team_code' => 'TM-SECOND01']);
         $otherTeam->members()->attach($otherCoach, [
             'member_role' => 'main_coach',
             'status' => 'active',
@@ -176,7 +191,8 @@ class TeamSettingsTest extends TestCase
 
         $this->assertDatabaseHas('team_settings', [
             'team_id' => $team->id,
-            'dead_air_threshold_ms' => 5000,
+            'setting_name' => 'dead_air_threshold',
+            'setting_parameter' => 5000,
         ]);
     }
 
@@ -205,7 +221,8 @@ class TeamSettingsTest extends TestCase
 
         $this->assertDatabaseHas('team_settings', [
             'team_id' => $team->id,
-            'dead_air_threshold_ms' => 5000,
+            'setting_name' => 'dead_air_threshold',
+            'setting_parameter' => 5000,
         ]);
     }
 
@@ -214,7 +231,7 @@ class TeamSettingsTest extends TestCase
         [$team, $coach] = $this->makeTeamWithMainCoach();
 
         $this->actingAs($coach, 'sanctum')
-            ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 4294967296])
+            ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 2147483648])
             ->assertStatus(422);
     }
 }

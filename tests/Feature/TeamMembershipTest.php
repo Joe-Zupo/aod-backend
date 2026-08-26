@@ -26,9 +26,7 @@ class TeamMembershipTest extends TestCase
         $coach = User::factory()->create();
         $coach->assignRole('Coach');
 
-        $team = new Team(['team_name' => 'Aces of Dawn']);
-        $team->team_code = 'TM-AODTEAM1';
-        $team->save();
+        $team = Team::create(['team_name' => 'Aces of Dawn', 'team_code' => 'TM-AODTEAM1']);
 
         $team->members()->attach($coach, [
             'member_role' => 'main_coach',
@@ -231,9 +229,7 @@ class TeamMembershipTest extends TestCase
     public function test_user_cannot_have_more_than_one_active_or_pending_membership(): void
     {
         [$team, $coach] = $this->makeTeamWithMainCoach();
-        $otherTeam = new Team(['team_name' => 'Second Team']);
-        $otherTeam->team_code = 'TM-SECOND01';
-        $otherTeam->save();
+        $otherTeam = Team::create(['team_name' => 'Second Team', 'team_code' => 'TM-SECOND01']);
 
         $player = User::factory()->create();
         $player->assignRole('Player');

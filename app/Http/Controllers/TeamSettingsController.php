@@ -21,7 +21,7 @@ class TeamSettingsController extends Controller
     {
         $team = $request->user()->resolveTeam($request);
         $this->authorizeSettings('view', $team);
-        $settings = $this->resolveSettings($team);
+        $settings = $team->ensureSettings();
 
         return $this->success('Team settings retrieved.', [
             'settings' => new TeamSettingsResource($settings),
@@ -36,11 +36,15 @@ class TeamSettingsController extends Controller
      */
     public function update(UpdateTeamSettingsRequest $request): JsonResponse
     {
+        // Authorized by UpdateTeamSettingsRequest::authorize(), which runs
+        // before validation — so an unauthorized caller is denied regardless
+        // of whether their payload is well-formed.
         $team = $request->user()->resolveTeam($request);
-        $this->authorizeSettings('update', $team);
-        $settings = $this->resolveSettings($team);
+        $settings = $team->ensureSettings();
 
-        $settings->update($request->validated());
+        $settings->get(TeamSettings::SETTING_DEAD_AIR_THRESHOLD)->update([
+            'setting_parameter' => $request->validated('dead_air_threshold_ms'),
+        ]);
 
         return $this->success('Team settings updated.', [
             'settings' => new TeamSettingsResource($settings),
@@ -49,26 +53,10 @@ class TeamSettingsController extends Controller
 
     /**
      * Authorize against an unsaved TeamSettings so a denied caller never causes
-     * a settings row to be created as a side effect of resolveSettings() below.
+     * a settings row to be created as a side effect of ensureSettings() below.
      */
     private function authorizeSettings(string $ability, Team $team): void
     {
-        $settings = new TeamSettings(['team_id' => $team->id]);
-        $settings->setRelation('team', $team);
-
-        $this->authorize($ability, $settings);
-    }
-
-    /**
-     * The team's settings row, self-healing for any team that predates this
-     * feature (or otherwise lacks one), with the already-loaded team attached
-     * so the policy doesn't need to re-fetch it.
-     */
-    private function resolveSettings(Team $team): TeamSettings
-    {
-        $settings = $team->settings()->firstOrCreate([], ['dead_air_threshold_ms' => 5000]);
-        $settings->setRelation('team', $team);
-
-        return $settings;
+        $this->authorize($ability, TeamSettings::unsavedFor($team));
     }
 }

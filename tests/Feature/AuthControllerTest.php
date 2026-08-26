@@ -97,9 +97,7 @@ class AuthControllerTest extends TestCase
 
     public function test_player_registering_with_a_team_code_creates_a_pending_request(): void
     {
-        $team = new Team(['team_name' => 'Aces of Dawn']);
-        $team->team_code = 'TM-JOIN1234';
-        $team->save();
+        $team = Team::create(['team_name' => 'Aces of Dawn', 'team_code' => 'TM-JOIN1234']);
 
         $response = $this->postJson('/api/register', [
             'username' => 'player-one',

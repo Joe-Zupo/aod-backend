@@ -11,14 +11,15 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('team_settings', function (Blueprint $table) {
+        Schema::create('team_keywords', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('team_id')->constrained()->cascadeOnDelete();
-            $table->string('setting_name', 64);
-            $table->integer('setting_parameter')->nullable();
+            $table->foreignId('team_settings_id')->constrained()->cascadeOnDelete();
+            $table->string('keyword', 64);
+            $table->string('category', 16);
             $table->timestamps();
 
-            $table->unique(['team_id', 'setting_name']);
+            $table->unique(['team_settings_id', 'keyword']);
+            $table->index(['team_settings_id', 'category']);
         });
     }
 
@@ -27,6 +28,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('team_settings');
+        Schema::dropIfExists('team_keywords');
     }
 };

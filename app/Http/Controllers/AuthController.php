@@ -40,12 +40,10 @@ class AuthController extends Controller
             $membershipStatus = null;
 
             if (($validated['team_action'] ?? null) === 'create') {
-                $team = new Team([
+                $team = Team::create([
                     'team_name' => $validated['team_name'],
                     'description' => $validated['description'] ?? null,
                 ]);
-                $team->team_code = Team::generateTeamCode();
-                $team->save();
 
                 $team->members()->attach($user->id, [
                     'member_role' => 'main_coach',
