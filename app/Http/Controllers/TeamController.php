@@ -18,7 +18,7 @@ use Illuminate\Validation\ValidationException;
 class TeamController extends Controller
 {
     /**
-     * Request to Join
+     * Request to Join (OPTIONAL FOR MVP)
      *
      * Submit a join request for a team by its team code. The request stays pending
      * until the main coach of that team approves or rejects it. A user
@@ -59,7 +59,7 @@ class TeamController extends Controller
     }
 
     /**
-     * Join Requests Return
+     * Join Requests Return (OPTIONAL FOR MVP)
      *
      * Return the pending join requests for a team. Restricted to the team's main
      * coach.
@@ -77,7 +77,7 @@ class TeamController extends Controller
     }
 
     /**
-     * Decide Join Request
+     * Decide Join Request (OPTIONAL FOR MVP)
      *
      * Approve or reject a pending join request. Approving a player request is
      * rejected once the team already has 5 active players. Restricted to the
@@ -120,7 +120,7 @@ class TeamController extends Controller
     }
 
     /**
-     * Remove Member
+     * Remove Member (OPTIONAL FOR MVP)
      *
      * Remove an active player or assistant coach from the team, returning them to
      * a teamless state. The main coach cannot be removed this way; see leave().
@@ -148,7 +148,7 @@ class TeamController extends Controller
     }
 
     /**
-     * Leave Team
+     * Leave Team (OPTIONAL FOR MVP)
      *
      * Leave the authenticated user's active team. If the leaving member is the
      * main coach, the entire team is disbanded: every active member,
@@ -189,7 +189,7 @@ class TeamController extends Controller
     }
 
     /**
-     * Team Return
+     * Team Return 
      *
      * Return a team, including its active members, only when the authenticated
      * user is an active member of that team.
@@ -207,7 +207,7 @@ class TeamController extends Controller
     }
 
     /**
-     * Update Team
+     * Update Team (OPTIONAL FOR MVP)
      *
      * Allow only the active main coach to update a team's name or description.
      * Team codes are generated at creation and cannot be changed.
