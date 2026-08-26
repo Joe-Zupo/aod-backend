@@ -33,7 +33,7 @@ class TeamKeyword extends Model
         'trading', 'clearing', 'watching', 'covering', 'flanking', 'rushing',
         'baiting', 'faking', 'delaying', 'going', 'taking', 'firing',
         'pre-firing', 'pick', 'picking', 'fragging', 'jiggling', 'stop', 'go', 'ulting',
-        'committing', 'faking', 'fake', 'rush'
+        'committing', 'fake', 'rush'
     ];
 
     protected $fillable = [
