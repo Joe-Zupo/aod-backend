@@ -180,6 +180,19 @@ class TeamSettingsTest extends TestCase
         ]);
     }
 
+    public function test_outsider_request_does_not_create_a_settings_row_for_the_target_team(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+        $team->settings()->delete();
+        $outsider = User::factory()->create();
+        $outsider->assignRole('Player');
+
+        $this->actingAs($outsider, 'sanctum')->getJson('/api/teams/settings?team='.$team->id)
+            ->assertNotFound();
+
+        $this->assertDatabaseMissing('team_settings', ['team_id' => $team->id]);
+    }
+
     public function test_viewing_settings_for_a_team_missing_its_settings_row_self_heals(): void
     {
         [$team, $coach] = $this->makeTeamWithMainCoach();

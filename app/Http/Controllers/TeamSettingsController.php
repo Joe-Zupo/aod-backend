@@ -20,8 +20,8 @@ class TeamSettingsController extends Controller
     public function show(Request $request): JsonResponse
     {
         $team = $request->user()->resolveTeam($request);
+        $this->authorizeSettings('view', $team);
         $settings = $this->resolveSettings($team);
-        $this->authorize('view', $settings);
 
         return $this->success('Team settings retrieved.', [
             'settings' => new TeamSettingsResource($settings),
@@ -37,14 +37,26 @@ class TeamSettingsController extends Controller
     public function update(UpdateTeamSettingsRequest $request): JsonResponse
     {
         $team = $request->user()->resolveTeam($request);
+        $this->authorizeSettings('update', $team);
         $settings = $this->resolveSettings($team);
-        $this->authorize('update', $settings);
 
         $settings->update($request->validated());
 
         return $this->success('Team settings updated.', [
             'settings' => new TeamSettingsResource($settings),
         ]);
+    }
+
+    /**
+     * Authorize against an unsaved TeamSettings so a denied caller never causes
+     * a settings row to be created as a side effect of resolveSettings() below.
+     */
+    private function authorizeSettings(string $ability, Team $team): void
+    {
+        $settings = new TeamSettings(['team_id' => $team->id]);
+        $settings->setRelation('team', $team);
+
+        $this->authorize($ability, $settings);
     }
 
     /**
