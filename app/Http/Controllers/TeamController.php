@@ -11,7 +11,6 @@ use App\Models\Team;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -137,7 +136,7 @@ class TeamController extends Controller
             return $this->error('This member cannot be removed.', 422);
         }
 
-        $team->members()->updateExistingPivot($user->id, [
+        $team->departMember($user, [
             'status' => 'removed',
             'left_at' => now(),
             'decided_by' => $request->user()->id,
@@ -165,22 +164,12 @@ class TeamController extends Controller
         }
 
         if (in_array($membership->pivot->member_role, User::TEAM_MANAGEMENT_ROLES, true)) {
-            DB::transaction(function () use ($team): void {
-                foreach ($team->activeMembers()->get() as $member) {
-                    $team->members()->updateExistingPivot($member->id, [
-                        'status' => 'removed',
-                        'left_at' => now(),
-                    ]);
-                }
-
-                $team->disbanded_at = now();
-                $team->save();
-            });
+            $team->disband();
 
             return $this->success('You left the team. The team has been disbanded.');
         }
 
-        $team->members()->updateExistingPivot($user->id, [
+        $team->departMember($user, [
             'status' => 'removed',
             'left_at' => now(),
         ]);
@@ -189,7 +178,7 @@ class TeamController extends Controller
     }
 
     /**
-     * Team Return 
+     * Team Return
      *
      * Return a team, including its active members, only when the authenticated
      * user is an active member of that team.

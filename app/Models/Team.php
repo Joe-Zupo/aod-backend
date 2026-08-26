@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class Team extends Model
@@ -38,6 +39,11 @@ class Team extends Model
     public function settings(): HasMany
     {
         return $this->hasMany(TeamSettings::class);
+    }
+
+    public function sessions(): HasMany
+    {
+        return $this->hasMany(Session::class);
     }
 
     /**
@@ -87,6 +93,50 @@ class Team extends Model
     public function pendingMembers(): BelongsToMany
     {
         return $this->members()->wherePivot('status', 'pending');
+    }
+
+    /**
+     * Update a member's pivot row and clean up their active session
+     * participations together, as one seam. Every path by which a member's
+     * active membership on this team ends — removal or self-leave; logout
+     * doesn't touch this pivot, so it calls the cleanup directly — goes
+     * through this method, so a future departure path can't add the pivot
+     * update without the cleanup.
+     */
+    public function departMember(User $member, array $pivotAttributes): void
+    {
+        DB::transaction(function () use ($member, $pivotAttributes): void {
+            $this->members()->updateExistingPivot($member->id, $pivotAttributes);
+            $member->leaveActiveSessionParticipations();
+        });
+    }
+
+    /**
+     * Disband the team: return every active member to a teamless state,
+     * leave their active session participations, and cancel whatever
+     * non-terminal session the team has — in a fixed number of queries
+     * regardless of roster size, rather than once per member.
+     */
+    public function disband(): void
+    {
+        DB::transaction(function (): void {
+            $memberIds = $this->activeMembers()->pluck('users.id');
+
+            $this->members()->newPivotStatement()
+                ->where('team_id', $this->id)
+                ->whereIn('user_id', $memberIds)
+                ->update(['status' => 'removed', 'left_at' => now(), 'updated_at' => now()]);
+
+            SessionParticipant::whereIn('user_id', $memberIds)
+                ->whereNull('left_at')
+                ->whereHas('session', fn ($query) => $query->where('team_id', $this->id)->nonTerminal())
+                ->update(['left_at' => now()]);
+
+            $this->sessions()->nonTerminal()->update(['status' => Session::STATUS_CANCELLED]);
+
+            $this->disbanded_at = now();
+            $this->save();
+        });
     }
 
     /**

@@ -115,11 +115,20 @@ class AuthController extends Controller
     /**
      * Logout
      *
-     * Revoke the API token used for the current request.
+     * Revoke the API token used for the current request. Also leaves any
+     * non-terminal session the user is still an active participant in,
+     * cancelling that session if that leaves it with no participants at all.
+     * Wrapped in a transaction so a failure partway through never leaves
+     * session state changed without the token actually being revoked.
      */
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+
+        DB::transaction(function () use ($user): void {
+            $user->leaveActiveSessionParticipations();
+            $user->currentAccessToken()->delete();
+        });
 
         return $this->success('Logout successful.');
     }

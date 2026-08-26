@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Http\Request;
 use Illuminate\Notifications\Notifiable;
@@ -25,6 +26,14 @@ class User extends Authenticatable
     public const TEAM_MANAGEMENT_ROLES = ['main_coach'];
 
     public const TEAM_COACH_ROLES = ['main_coach', 'assistant_coach'];
+
+    /**
+     * Per-instance cache for teamRole(), keyed by team id — a single request
+     * often checks a user's role via a policy and then reuses it (e.g.
+     * snapshotting participant_role right after an authorize() call), so
+     * this avoids re-querying the same pivot row twice.
+     */
+    private array $teamRoleCache = [];
 
     /**
      * Get the attributes that should be cast.
@@ -45,6 +54,27 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function sessionParticipations(): HasMany
+    {
+        return $this->hasMany(SessionParticipant::class);
+    }
+
+    /**
+     * Leave every non-terminal session this user is still an active
+     * participant in. Called wherever this user's active involvement with a
+     * team can end — logout, being removed, leaving, or a team disbanding —
+     * so a departed user never keeps a session artificially alive.
+     */
+    public function leaveActiveSessionParticipations(): void
+    {
+        $this->sessionParticipations()
+            ->whereNull('left_at')
+            ->whereHas('session', fn ($query) => $query->nonTerminal())
+            ->with('session')
+            ->get()
+            ->each->leave();
     }
 
     public function teams(): BelongsToMany
@@ -77,7 +107,7 @@ class User extends Authenticatable
      */
     public function teamRole(Team $team): ?string
     {
-        return $this->activeTeams()->whereKey($team->id)->first()?->pivot->member_role;
+        return $this->teamRoleCache[$team->id] ??= $this->activeTeams()->whereKey($team->id)->first()?->pivot->member_role;
     }
 
     /**
