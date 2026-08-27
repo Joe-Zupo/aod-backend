@@ -2,18 +2,16 @@
 
 namespace Tests\Feature;
 
-use App\Models\Session;
-use App\Models\SessionParticipant;
-use App\Models\Team;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\CreatesTeamsAndSessions;
 use Tests\TestCase;
 
 class SessionLifecycleTest extends TestCase
 {
-    use RefreshDatabase;
+    use CreatesTeamsAndSessions, RefreshDatabase;
 
     protected function setUp(): void
     {
@@ -22,55 +20,6 @@ class SessionLifecycleTest extends TestCase
         foreach (['Coach', 'Player'] as $role) {
             Role::create(['name' => $role, 'guard_name' => 'web']);
         }
-    }
-
-    private function makeTeamWithMember(string $memberRole, string $spatieRole = 'Coach'): array
-    {
-        $user = User::factory()->create();
-        $user->assignRole($spatieRole);
-
-        $team = Team::factory()->create(['team_name' => 'Aces of Dawn', 'team_code' => 'TM-AODTEAM1']);
-
-        $this->attachActiveMember($team, $user, $memberRole, $user);
-
-        return [$team, $user];
-    }
-
-    private function attachActiveMember(Team $team, User $user, string $memberRole, User $decidedBy): void
-    {
-        $team->members()->attach($user, [
-            'member_role' => $memberRole,
-            'status' => 'active',
-            'joined_at' => now(),
-            'decided_by' => $decidedBy->id,
-            'decided_at' => now(),
-        ]);
-    }
-
-    private function makeAndAttachMember(Team $team, string $memberRole, string $spatieRole, User $decidedBy): User
-    {
-        $user = User::factory()->create();
-        $user->assignRole($spatieRole);
-        $this->attachActiveMember($team, $user, $memberRole, $decidedBy);
-
-        return $user;
-    }
-
-    private function createSession(Team $team, User $creator, string $status = 'queuing', string $name = 'Scrim vs Team B'): Session
-    {
-        return Session::factory()->for($team)->create([
-            'created_by' => $creator->id,
-            'session_name' => $name,
-            'status' => $status,
-        ]);
-    }
-
-    private function addParticipant(Session $session, User $user, string $role): SessionParticipant
-    {
-        return SessionParticipant::factory()->for($session)->create([
-            'user_id' => $user->id,
-            'participant_role' => $role,
-        ]);
     }
 
     public function test_active_coach_can_create_a_session_and_its_timeline(): void

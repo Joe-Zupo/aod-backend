@@ -4,17 +4,15 @@ namespace Tests\Feature;
 
 use App\Events\SessionParticipantJoined;
 use App\Events\SessionParticipantLeft;
-use App\Models\Session;
-use App\Models\Team;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\CreatesTeamsAndSessions;
 use Tests\TestCase;
 
 class SessionBroadcastingTest extends TestCase
 {
-    use RefreshDatabase;
+    use CreatesTeamsAndSessions, RefreshDatabase;
 
     protected function setUp(): void
     {
@@ -25,48 +23,6 @@ class SessionBroadcastingTest extends TestCase
         }
 
         Event::fake([SessionParticipantJoined::class, SessionParticipantLeft::class]);
-    }
-
-    private function makeTeamWithMember(string $memberRole, string $spatieRole = 'Coach'): array
-    {
-        $user = User::factory()->create();
-        $user->assignRole($spatieRole);
-
-        $team = Team::factory()->create(['team_name' => 'Aces of Dawn', 'team_code' => 'TM-AODTEAM1']);
-
-        $team->members()->attach($user, [
-            'member_role' => $memberRole,
-            'status' => 'active',
-            'joined_at' => now(),
-            'decided_by' => $user->id,
-            'decided_at' => now(),
-        ]);
-
-        return [$team, $user];
-    }
-
-    private function makeAndAttachMember(Team $team, string $memberRole, string $spatieRole, User $decidedBy): User
-    {
-        $user = User::factory()->create();
-        $user->assignRole($spatieRole);
-
-        $team->members()->attach($user, [
-            'member_role' => $memberRole,
-            'status' => 'active',
-            'joined_at' => now(),
-            'decided_by' => $decidedBy->id,
-            'decided_at' => now(),
-        ]);
-
-        return $user;
-    }
-
-    private function createSession(Team $team, User $creator, string $status = 'queuing'): Session
-    {
-        return Session::factory()->for($team)->create([
-            'created_by' => $creator->id,
-            'status' => $status,
-        ]);
     }
 
     public function test_explicit_join_dispatches_session_participant_joined(): void
