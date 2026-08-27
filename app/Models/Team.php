@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Events\SessionParticipantLeft;
+use App\Support\Broadcasting;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -128,24 +129,35 @@ class Team extends Model
                 ->whereIn('user_id', $memberIds)
                 ->update(['status' => 'removed', 'left_at' => now(), 'updated_at' => now()]);
 
-            $departingParticipants = SessionParticipant::whereIn('user_id', $memberIds)
-                ->whereNull('left_at')
-                ->whereHas('session', fn ($query) => $query->where('team_id', $this->id)->nonTerminal())
-                ->with('user')
-                ->get();
-
             $leftAt = now();
 
-            SessionParticipant::whereIn('id', $departingParticipants->pluck('id'))
+            $departingIds = SessionParticipant::whereIn('user_id', $memberIds)
+                ->whereNull('left_at')
+                ->whereHas('session', fn ($query) => $query->where('team_id', $this->id)->nonTerminal())
+                ->pluck('id');
+
+            // Re-checks left_at IS NULL at write time, not just at the
+            // SELECT above: a participant who left through a different,
+            // concurrent path between the two queries keeps their real
+            // timestamp instead of being silently overwritten by this one.
+            SessionParticipant::whereIn('id', $departingIds)
+                ->whereNull('left_at')
                 ->update(['left_at' => $leftAt]);
 
-            $departingParticipants->each(function (SessionParticipant $participant) use ($leftAt): void {
-                $participant->left_at = $leftAt;
+            // Only the rows the guarded update above actually touched get a
+            // departure broadcast here — a participant it skipped already
+            // left (and was already broadcast) through that other path.
+            SessionParticipant::whereIn('id', $departingIds)
+                ->where('left_at', $leftAt)
+                ->with('user')
+                ->get()
+                ->each(fn (SessionParticipant $participant) => Broadcasting::safely(new SessionParticipantLeft($participant)));
 
-                event(new SessionParticipantLeft($participant));
-            });
-
-            $this->sessions()->nonTerminal()->update(['status' => Session::STATUS_CANCELLED]);
+            // Same invariant every other departure goes through (leave()),
+            // not a blind bulk cancel: a session is cancelled once it has no
+            // active participant left, checked per session rather than
+            // assumed true just because the whole roster is departing.
+            $this->sessions()->nonTerminal()->get()->each->cancelIfNoParticipantsRemain();
 
             $this->disbanded_at = now();
             $this->save();
