@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Event;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
 
-class UserPresenceBroadcastingTest extends TestCase
+class UserOnlineStatusBroadcastingTest extends TestCase
 {
     use RefreshDatabase;
 
