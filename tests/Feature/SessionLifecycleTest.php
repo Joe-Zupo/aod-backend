@@ -105,6 +105,7 @@ class SessionLifecycleTest extends TestCase
             ->assertCreated()
             ->assertJsonCount(1, 'data.session.participants')
             ->assertJsonPath('data.session.participants.0.user_id', $coach->id)
+            ->assertJsonPath('data.session.participants.0.username', $coach->username)
             ->assertJsonPath('data.session.participants.0.participant_role', 'main_coach');
 
         $session = $team->sessions()->first();
