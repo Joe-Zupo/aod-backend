@@ -17,6 +17,7 @@ class UserResource extends JsonResource
             'email' => $this->email,
             'user_code' => $this->user_code,
             'riot_id' => $this->riot_id,
+            'is_online' => $this->is_online,
             'roles' => $this->whenLoaded('roles', fn () => $this->getRoleNames()->values()),
             'teams' => TeamResource::collection($this->whenLoaded('activeTeams')),
             'created_at' => $this->created_at,

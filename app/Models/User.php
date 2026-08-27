@@ -3,6 +3,8 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Events\UserWentOffline;
+use App\Events\UserWentOnline;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -53,6 +55,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_online' => 'boolean',
         ];
     }
 
@@ -75,6 +78,41 @@ class User extends Authenticatable
             ->with('session')
             ->get()
             ->each->leave();
+    }
+
+    /**
+     * Mark the user online and broadcast it to their active team, if they
+     * have one. Reflects "authenticated since last logout," not live
+     * connection presence — a user who closes the app without logging out
+     * stays flagged online until they explicitly log out again.
+     */
+    public function goOnline(): void
+    {
+        // forceFill, not update: is_online is deliberately not in $fillable
+        // — it should only ever be set through this seam (or goOffline()),
+        // never via mass assignment from request input elsewhere.
+        $this->forceFill(['is_online' => true])->save();
+
+        $team = $this->activeTeams()->first();
+
+        if ($team) {
+            event(new UserWentOnline($this, $team));
+        }
+    }
+
+    /**
+     * Mark the user offline and broadcast it to their active team, if they
+     * have one.
+     */
+    public function goOffline(): void
+    {
+        $this->forceFill(['is_online' => false])->save();
+
+        $team = $this->activeTeams()->first();
+
+        if ($team) {
+            event(new UserWentOffline($this, $team));
+        }
     }
 
     public function teams(): BelongsToMany

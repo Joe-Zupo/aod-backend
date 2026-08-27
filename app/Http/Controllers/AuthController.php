@@ -74,6 +74,7 @@ class AuthController extends Controller
             return [$user, $team, $membershipStatus];
         });
 
+        $user->goOnline();
         $user->load(['roles', 'activeTeams']);
 
         return $this->success('Registration successful.', [
@@ -104,6 +105,7 @@ class AuthController extends Controller
             ]);
         }
 
+        $user->goOnline();
         $user->load(['roles', 'activeTeams']);
 
         return $this->success('Login successful.', [
@@ -117,9 +119,10 @@ class AuthController extends Controller
      *
      * Revoke the API token used for the current request. Also leaves any
      * non-terminal session the user is still an active participant in,
-     * cancelling that session if that leaves it with no participants at all.
-     * Wrapped in a transaction so a failure partway through never leaves
-     * session state changed without the token actually being revoked.
+     * cancelling that session if that leaves it with no participants at all,
+     * and marks the user offline. Wrapped in a transaction so a failure
+     * partway through never leaves this state changed without the token
+     * actually being revoked.
      */
     public function logout(Request $request): JsonResponse
     {
@@ -127,6 +130,7 @@ class AuthController extends Controller
 
         DB::transaction(function () use ($user): void {
             $user->leaveActiveSessionParticipations();
+            $user->goOffline();
             $user->currentAccessToken()->delete();
         });
 

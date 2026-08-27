@@ -15,6 +15,7 @@ class TeamMemberResource extends JsonResource
             'id' => $this->id,
             'username' => $this->username,
             'user_code' => $this->user_code,
+            'is_online' => $this->is_online,
             'member_role' => $this->pivot->member_role,
             'status' => $this->pivot->status,
             'joined_at' => $this->pivot->joined_at,
