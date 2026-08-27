@@ -18,6 +18,10 @@ _Avoid_: lobby, waiting (used by the design flowchart, but `queuing` is the cano
 **Team Member**:
 A user's ongoing relationship to a team (active, pending, or removed), independent of any particular Session.
 
+**Online** (of a User):
+Reflects whether a user is authenticated since their last logout — set the moment they log in or register (which also issues a token), cleared the moment they log out. Not a live connection/presence signal: a user who closes the app without logging out stays Online until they explicitly log out again. Broadcast to a user's active team only; a teamless user has no one authorized to see it.
+_Avoid_: presence, active (as in "actively connected") — neither implies the auth-boundary meaning this term actually has
+
 **Session Participant**:
 A Team Member's participation in one specific Session. Its role is a snapshot of the member's team role at join time — it does not itself grant or change any authority.
 
