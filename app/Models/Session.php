@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Events\SessionParticipantJoined;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -123,11 +124,7 @@ class Session extends Model
 
             Timeline::create(['session_id' => $session->id]);
 
-            $session->participants()->create([
-                'user_id' => $creator->id,
-                'participant_role' => $creator->teamRole($team),
-                'joined_at' => now(),
-            ]);
+            $session->joinOrRejoin($creator);
 
             return $session;
         });
@@ -151,15 +148,21 @@ class Session extends Model
                     'joined_at' => now(),
                     'participant_role' => $user->teamRole($this->team),
                 ]);
+
+                event(new SessionParticipantJoined($participant));
             }
 
             return $participant;
         }
 
-        return $this->participants()->create([
+        $participant = $this->participants()->create([
             'user_id' => $user->id,
             'participant_role' => $user->teamRole($this->team),
             'joined_at' => now(),
         ]);
+
+        event(new SessionParticipantJoined($participant));
+
+        return $participant;
     }
 }

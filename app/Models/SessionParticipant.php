@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Events\SessionParticipantLeft;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -43,6 +44,9 @@ class SessionParticipant extends Model
     public function leave(): void
     {
         $this->update(['left_at' => now()]);
+
+        event(new SessionParticipantLeft($this));
+
         $this->session->cancelIfNoParticipantsRemain();
     }
 }

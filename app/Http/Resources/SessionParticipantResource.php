@@ -13,6 +13,7 @@ class SessionParticipantResource extends JsonResource
     {
         return [
             'user_id' => $this->user_id,
+            'username' => $this->whenLoaded('user', fn () => $this->user->username),
             'participant_role' => $this->participant_role,
             'joined_at' => $this->joined_at,
             'left_at' => $this->left_at,

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Events\SessionParticipantLeft;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -127,10 +128,22 @@ class Team extends Model
                 ->whereIn('user_id', $memberIds)
                 ->update(['status' => 'removed', 'left_at' => now(), 'updated_at' => now()]);
 
-            SessionParticipant::whereIn('user_id', $memberIds)
+            $departingParticipants = SessionParticipant::whereIn('user_id', $memberIds)
                 ->whereNull('left_at')
                 ->whereHas('session', fn ($query) => $query->where('team_id', $this->id)->nonTerminal())
-                ->update(['left_at' => now()]);
+                ->with('user')
+                ->get();
+
+            $leftAt = now();
+
+            SessionParticipant::whereIn('id', $departingParticipants->pluck('id'))
+                ->update(['left_at' => $leftAt]);
+
+            $departingParticipants->each(function (SessionParticipant $participant) use ($leftAt): void {
+                $participant->left_at = $leftAt;
+
+                event(new SessionParticipantLeft($participant));
+            });
 
             $this->sessions()->nonTerminal()->update(['status' => Session::STATUS_CANCELLED]);
 

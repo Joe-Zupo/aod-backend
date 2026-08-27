@@ -67,7 +67,7 @@ class SessionController extends Controller
             return $this->error('This team already has an active session.', 422);
         }
 
-        return $this->success('Session created.', ['session' => new SessionResource($session->load('activeParticipants'))], 201);
+        return $this->success('Session created.', ['session' => new SessionResource($session->load('activeParticipants.user'))], 201);
     }
 
     /**
@@ -81,7 +81,7 @@ class SessionController extends Controller
         $this->authorize('view', $session);
 
         return $this->success('Session retrieved.', [
-            'session' => new SessionResource($session->load('activeParticipants')),
+            'session' => new SessionResource($session->load('activeParticipants.user')),
         ]);
     }
 
@@ -108,7 +108,7 @@ class SessionController extends Controller
         }
 
         return $this->success('Joined session.', [
-            'session' => new SessionResource($session->load('activeParticipants')),
+            'session' => new SessionResource($session->load('activeParticipants.user')),
         ]);
     }
 }
