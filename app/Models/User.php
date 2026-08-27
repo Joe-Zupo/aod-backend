@@ -5,6 +5,8 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Events\UserWentOffline;
 use App\Events\UserWentOnline;
+use App\Support\Broadcasting;
+use Closure;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -77,7 +79,12 @@ class User extends Authenticatable
             ->whereHas('session', fn ($query) => $query->nonTerminal())
             ->with('session')
             ->get()
-            ->each->leave();
+            ->each(function (SessionParticipant $participation): void {
+                // Every result here belongs to $this by definition (it's
+                // $this->sessionParticipations()), so this is the same User
+                // already in hand — never a reason to lazy-load it back.
+                $participation->setRelation('user', $this)->leave();
+            });
     }
 
     /**
@@ -88,16 +95,7 @@ class User extends Authenticatable
      */
     public function goOnline(): void
     {
-        // forceFill, not update: is_online is deliberately not in $fillable
-        // — it should only ever be set through this seam (or goOffline()),
-        // never via mass assignment from request input elsewhere.
-        $this->forceFill(['is_online' => true])->save();
-
-        $team = $this->activeTeams()->first();
-
-        if ($team) {
-            event(new UserWentOnline($this, $team));
-        }
+        $this->setOnlineStatus(true, fn (Team $team) => new UserWentOnline($this, $team));
     }
 
     /**
@@ -106,12 +104,26 @@ class User extends Authenticatable
      */
     public function goOffline(): void
     {
-        $this->forceFill(['is_online' => false])->save();
+        $this->setOnlineStatus(false, fn (Team $team) => new UserWentOffline($this, $team));
+    }
+
+    /**
+     * Persist is_online and broadcast the change to the user's active team,
+     * if they have one — the shared seam behind goOnline()/goOffline() so
+     * the persist-then-broadcast sequence and the no-active-team guard live
+     * in exactly one place.
+     */
+    private function setOnlineStatus(bool $online, Closure $makeEvent): void
+    {
+        // forceFill, not update: is_online is deliberately not in $fillable
+        // — it should only ever be set through this seam, never via mass
+        // assignment from request input elsewhere.
+        $this->forceFill(['is_online' => $online])->save();
 
         $team = $this->activeTeams()->first();
 
         if ($team) {
-            event(new UserWentOffline($this, $team));
+            Broadcasting::safely($makeEvent($team));
         }
     }
 

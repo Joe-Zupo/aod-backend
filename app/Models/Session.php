@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Events\SessionParticipantJoined;
+use App\Support\Broadcasting;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -149,7 +150,7 @@ class Session extends Model
                     'participant_role' => $user->teamRole($this->team),
                 ]);
 
-                event(new SessionParticipantJoined($participant));
+                Broadcasting::safely(new SessionParticipantJoined($participant->setRelation('user', $user)));
             }
 
             return $participant;
@@ -161,7 +162,7 @@ class Session extends Model
             'joined_at' => now(),
         ]);
 
-        event(new SessionParticipantJoined($participant));
+        Broadcasting::safely(new SessionParticipantJoined($participant->setRelation('user', $user)));
 
         return $participant;
     }
