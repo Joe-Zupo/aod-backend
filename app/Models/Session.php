@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Events\SessionParticipantJoined;
+use App\Events\SessionParticipantLeft;
+use App\Exceptions\SessionTransitionException;
 use App\Support\Broadcasting;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -129,6 +131,87 @@ class Session extends Model
 
             return $session;
         });
+    }
+
+    /**
+     * Transition this session from queuing to in_progress. The single seam
+     * that owns the start guard, so any caller inherits it: a session can
+     * only start with at least one player (non-Coach participant) who is
+     * currently in it, so we never record an empty room.
+     *
+     * @throws SessionTransitionException when the guard is not met
+     */
+    public function start(): void
+    {
+        DB::transaction(function () {
+            // Lock and re-read the row inside the transaction: the guard
+            // decides on the session's stored status, not whatever this
+            // instance was loaded with, so a concurrent start/cancel can't
+            // be clobbered between our check and our write.
+            $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
+
+            if ($status !== self::STATUS_QUEUING) {
+                throw new SessionTransitionException('Only a queuing session can be started.');
+            }
+
+            $hasActivePlayer = $this->participants()
+                ->whereNull('left_at')
+                ->whereNotIn('participant_role', User::TEAM_COACH_ROLES)
+                ->exists();
+
+            if (! $hasActivePlayer) {
+                throw new SessionTransitionException('A session needs at least one player before it can start.');
+            }
+
+            $this->update(['status' => self::STATUS_IN_PROGRESS]);
+        });
+    }
+
+    /**
+     * Transition this session to cancelled from either non-terminal status.
+     * Aborting an in_progress run persists nothing: no AOD/VOD record is
+     * written until a session reaches completed, so there's nothing here to
+     * discard.
+     *
+     * @throws SessionTransitionException when the session is already terminal
+     */
+    public function cancel(): void
+    {
+        DB::transaction(function () {
+            $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
+
+            if (! in_array($status, self::NON_TERMINAL_STATUSES, true)) {
+                throw new SessionTransitionException('This session can no longer be cancelled.');
+            }
+
+            $this->update(['status' => self::STATUS_CANCELLED]);
+
+            $this->departActiveParticipants();
+        });
+    }
+
+    /**
+     * Mark every still-present participant of this session as having left,
+     * broadcasting one departure per row actually touched. Mirrors disband()'s
+     * bulk pattern: the UPDATE re-checks left_at IS NULL so a participant who
+     * left through a concurrent path keeps their own timestamp and isn't
+     * broadcast a second time.
+     */
+    private function departActiveParticipants(): void
+    {
+        $leftAt = now();
+
+        $ids = $this->participants()->whereNull('left_at')->pluck('id');
+
+        SessionParticipant::whereIn('id', $ids)
+            ->whereNull('left_at')
+            ->update(['left_at' => $leftAt]);
+
+        SessionParticipant::whereIn('id', $ids)
+            ->where('left_at', $leftAt)
+            ->with('user')
+            ->get()
+            ->each(fn (SessionParticipant $participant) => Broadcasting::safely(new SessionParticipantLeft($participant)));
     }
 
     /**

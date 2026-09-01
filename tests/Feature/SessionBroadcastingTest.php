@@ -154,4 +154,42 @@ class SessionBroadcastingTest extends TestCase
             fn ($event) => $event->participant->user_id === $player->id
         );
     }
+
+    public function test_cancelling_a_session_dispatches_session_participant_left_for_each_active_participant(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, 'in_progress');
+        $session->joinOrRejoin($coach);
+        $session->joinOrRejoin($player);
+
+        Event::fake([SessionParticipantJoined::class, SessionParticipantLeft::class]);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->assertOk();
+
+        Event::assertDispatched(SessionParticipantLeft::class, 2);
+    }
+
+    public function test_cancelling_a_session_does_not_dispatch_for_a_participant_who_already_left(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, 'in_progress');
+        $session->joinOrRejoin($coach);
+        $session->joinOrRejoin($player)->leave();
+
+        Event::fake([SessionParticipantJoined::class, SessionParticipantLeft::class]);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->assertOk();
+
+        Event::assertDispatched(SessionParticipantLeft::class, 1);
+        Event::assertDispatched(
+            SessionParticipantLeft::class,
+            fn ($event) => $event->participant->user_id === $coach->id
+        );
+    }
 }

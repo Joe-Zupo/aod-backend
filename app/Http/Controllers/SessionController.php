@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\SessionTransitionException;
 use App\Http\Requests\StoreSessionRequest;
 use App\Http\Resources\SessionResource;
 use App\Models\Session;
@@ -108,6 +109,48 @@ class SessionController extends Controller
         }
 
         return $this->success('Joined session.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
+
+    /**
+     * Start Session
+     *
+     * Transition a queuing session to in_progress. Restricted to any active
+     * Coach on the session's team, not just its creator.
+     */
+    public function start(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('start', $session);
+
+        try {
+            $session->start();
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Session started.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
+
+    /**
+     * Cancel Session
+     *
+     * Transition a queuing or in_progress session to cancelled. Restricted to
+     * any active Coach on the session's team, not just its creator.
+     */
+    public function cancel(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('cancel', $session);
+
+        try {
+            $session->cancel();
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Session cancelled.', [
             'session' => new SessionResource($session->load('activeParticipants.user')),
         ]);
     }
