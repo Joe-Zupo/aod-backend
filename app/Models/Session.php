@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -222,55 +223,70 @@ class Session extends Model
     }
 
     /**
-     * Complete this in_progress session by storing one recording participant's
-     * audio and video, moving in_progress -> completed, and sweeping every
-     * recording participant to completed. The single seam that owns the
-     * completion guards. The session must be in_progress and the named user
-     * must currently be recording in it. All of it runs in one transaction, so
-     * a session that is not completed never has a stored record attached, and
-     * any file written before a mid-transaction failure is deleted on the way
-     * out.
+     * Complete this in_progress session from one call that carries an audio and
+     * video slot for every recording player. Stores whatever files the slots
+     * hold, moves in_progress -> completed, and sweeps every recording
+     * participant to completed. The single seam that owns the completion
+     * guards, checked in order: the session must be in_progress; the submitted
+     * user ids must match the recording roster exactly; at least one slot must
+     * hold both an audio and a video. All of it runs in one transaction, so a
+     * session that is not completed never has a stored record attached, and any
+     * file written before a mid-transaction failure is deleted on the way out.
      *
-     * @throws SessionTransitionException when the session is not in_progress or
-     *                                    the user is not recording in it
+     * @param  list<array{user_id: int, audio: ?UploadedFile, video: ?UploadedFile}>  $entries
+     *
+     * @throws SessionTransitionException when a completion guard is not met
      */
-    public function complete(User $participant, UploadedFile $audio, UploadedFile $video): void
+    public function complete(array $entries): void
     {
         $writtenPaths = [];
 
         try {
-            DB::transaction(function () use ($participant, $audio, $video, &$writtenPaths) {
+            DB::transaction(function () use ($entries, &$writtenPaths) {
                 $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
 
                 if ($status !== self::STATUS_IN_PROGRESS) {
                     throw new SessionTransitionException('Only an in_progress session can be completed.');
                 }
 
-                $row = $this->participants()
-                    ->where('user_id', $participant->id)
+                $recording = $this->participants()
                     ->where('participant_status', SessionParticipant::PARTICIPANT_STATUS_RECORDING)
+                    ->with('user')
                     ->lockForUpdate()
-                    ->first();
+                    ->get()
+                    ->keyBy('user_id');
 
-                if (! $row) {
-                    throw new SessionTransitionException('That participant is not recording in this session.');
+                $slots = collect($entries);
+
+                $this->assertRosterMatch($recording->keys(), $slots->pluck('user_id'));
+
+                $hasFullPair = $slots->contains(fn (array $entry) => $entry['audio'] && $entry['video']);
+
+                if (! $hasFullPair) {
+                    throw new SessionTransitionException('At least one player must provide both an audio and a video recording.');
                 }
 
-                $writtenPaths[] = $audioPath = $this->storeRecording($audio, $participant->id, 'aod');
-                $writtenPaths[] = $videoPath = $this->storeRecording($video, $participant->id, 'vod');
+                foreach ($entries as $entry) {
+                    $participant = $recording->get($entry['user_id']);
 
-                AodRecord::create($this->recordAttributes($row, $audio, $audioPath));
-                VodRecord::create($this->recordAttributes($row, $video, $videoPath));
+                    if ($entry['audio']) {
+                        $writtenPaths[] = $path = $this->storeRecording($entry['audio'], $entry['user_id'], 'aod');
+                        AodRecord::create($this->recordAttributes($participant, $entry['audio'], $path));
+                    }
+
+                    if ($entry['video']) {
+                        $writtenPaths[] = $path = $this->storeRecording($entry['video'], $entry['user_id'], 'vod');
+                        VodRecord::create($this->recordAttributes($participant, $entry['video'], $path));
+                    }
+                }
 
                 $this->update(['status' => self::STATUS_COMPLETED]);
 
                 Broadcasting::safely(new SessionStatusChanged($this));
 
-                $this->participants()
-                    ->where('participant_status', SessionParticipant::PARTICIPANT_STATUS_RECORDING)
-                    ->with('user')
-                    ->get()
-                    ->each(fn (SessionParticipant $swept) => $swept->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_COMPLETED));
+                $recording->each(
+                    fn (SessionParticipant $swept) => $swept->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_COMPLETED),
+                );
             });
         } catch (Throwable $e) {
             foreach ($writtenPaths as $path) {
@@ -279,6 +295,38 @@ class Session extends Model
 
             throw $e;
         }
+    }
+
+    /**
+     * The submitted user ids must be exactly the recording roster. No recording
+     * player may be left out, and no id that is not recording in this session
+     * may appear.
+     *
+     * @param  Collection<int, int>  $roster
+     * @param  Collection<int, int>  $submitted
+     *
+     * @throws SessionTransitionException when the two sets differ
+     */
+    private function assertRosterMatch(Collection $roster, Collection $submitted): void
+    {
+        $missing = $roster->diff($submitted)->values();
+        $unexpected = $submitted->diff($roster)->values();
+
+        if ($missing->isEmpty() && $unexpected->isEmpty()) {
+            return;
+        }
+
+        $clauses = [];
+
+        if ($missing->isNotEmpty()) {
+            $clauses[] = 'Missing: '.$missing->implode(', ');
+        }
+
+        if ($unexpected->isNotEmpty()) {
+            $clauses[] = 'Not recording: '.$unexpected->implode(', ');
+        }
+
+        throw new SessionTransitionException('Completion must cover every recording player. '.implode('. ', $clauses).'.');
     }
 
     /**

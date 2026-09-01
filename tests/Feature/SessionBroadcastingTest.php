@@ -316,11 +316,11 @@ class SessionBroadcastingTest extends TestCase
         $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", [
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [[
                 'user_id' => $player->id,
                 'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
                 'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
-            ])
+            ]]])
             ->assertOk();
 
         Event::assertDispatched(
@@ -338,11 +338,11 @@ class SessionBroadcastingTest extends TestCase
         $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", [
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [[
                 'user_id' => $player->id,
                 'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
                 'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
-            ])
+            ]]])
             ->assertStatus(422);
 
         Event::assertNotDispatched(SessionStatusChanged::class);
@@ -359,11 +359,14 @@ class SessionBroadcastingTest extends TestCase
         $this->addParticipant($session, $two, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", [
-                'user_id' => $one->id,
-                'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
-                'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
-            ])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
+                [
+                    'user_id' => $one->id,
+                    'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
+                    'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
+                ],
+                ['user_id' => $two->id],
+            ]])
             ->assertOk();
 
         Event::assertDispatchedTimes(SessionParticipantStatusChanged::class, 2);

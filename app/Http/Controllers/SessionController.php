@@ -8,7 +8,6 @@ use App\Http\Requests\StoreSessionRequest;
 use App\Http\Resources\SessionResource;
 use App\Models\Session;
 use App\Models\Team;
-use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -183,20 +182,30 @@ class SessionController extends Controller
     /**
      * Complete Session
      *
-     * Store one recording participant's audio and video, then transition the
-     * in_progress session to completed and sweep every recording participant to
-     * completed. Restricted to any active Coach on the session's team, not just
-     * its creator. Rejected with 422 if the session is not in_progress or the
-     * named user is not recording in it.
+     * Take an audio and video slot for every recording player, store whatever
+     * files the slots hold, then transition the in_progress session to completed
+     * and sweep every recording participant to completed. Restricted to any
+     * active Coach on the session's team, not just its creator. Rejected with
+     * 422 if the session is not in_progress, the submitted player ids do not
+     * match the recording roster exactly, or no slot holds both files.
      */
     public function complete(CompleteSessionRequest $request, Session $session): JsonResponse
     {
         $this->authorize('complete', $session);
 
-        $participant = User::findOrFail($request->integer('user_id'));
+        $players = $request->validated('players');
+
+        $entries = [];
+        foreach (array_keys($players) as $i) {
+            $entries[] = [
+                'user_id' => (int) $players[$i]['user_id'],
+                'audio' => $request->file("players.{$i}.audio"),
+                'video' => $request->file("players.{$i}.video"),
+            ];
+        }
 
         try {
-            $session->complete($participant, $request->file('audio'), $request->file('video'));
+            $session->complete($entries);
         } catch (SessionTransitionException $e) {
             return $this->error($e->getMessage(), 422);
         }
