@@ -57,6 +57,20 @@ throughput, not per-file latency, and to chunk very long files.
 Sources, https://artificialanalysis.ai/speech-to-text/models/assemblyai and
 https://www.assemblyai.com/blog/transcription-at-scale
 
+## Verified live, 2026-09-01
+
+The pipeline was run end to end against the real API with a short clip:
+upload -> `POST /v2/transcript` -> poll to `completed`. Two contract notes from
+that run:
+
+- The `speech_model` request parameter is **deprecated** and now returns a 400.
+  Omit it; AssemblyAI uses its current default model. (A newer `speech_models`
+  array exists for model fallback preference, not needed here.)
+- The `Authorization` header takes the raw API key, no `Bearer` prefix.
+- A file with no speech (a pure tone) comes back `status: completed`,
+  `text: ""`, `words: []`, with a `language_code` still set. An empty transcript
+  is a valid completed result.
+
 ## Features we will want
 
 - **Word-level timestamps.** Response `words[]`, each with `text`, `start`, `end`
