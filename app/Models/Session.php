@@ -141,20 +141,49 @@ class Session extends Model
      */
     public function start(): void
     {
-        if ($this->status !== self::STATUS_QUEUING) {
-            throw new \DomainException('Only a queuing session can be started.');
-        }
+        DB::transaction(function () {
+            // Lock and re-read the row inside the transaction: the guard
+            // decides on the session's stored status, not whatever this
+            // instance was loaded with, so a concurrent start/cancel can't
+            // be clobbered between our check and our write.
+            $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
 
-        $hasActivePlayer = $this->participants()
-            ->whereNull('left_at')
-            ->whereNotIn('participant_role', User::TEAM_COACH_ROLES)
-            ->exists();
+            if ($status !== self::STATUS_QUEUING) {
+                throw new \DomainException('Only a queuing session can be started.');
+            }
 
-        if (! $hasActivePlayer) {
-            throw new \DomainException('A session needs at least one player before it can start.');
-        }
+            $hasActivePlayer = $this->participants()
+                ->whereNull('left_at')
+                ->whereNotIn('participant_role', User::TEAM_COACH_ROLES)
+                ->exists();
 
-        $this->update(['status' => self::STATUS_IN_PROGRESS]);
+            if (! $hasActivePlayer) {
+                throw new \DomainException('A session needs at least one player before it can start.');
+            }
+
+            $this->update(['status' => self::STATUS_IN_PROGRESS]);
+        });
+    }
+
+    /**
+     * Transition this session to cancelled from either non-terminal status.
+     * Aborting an in_progress run persists nothing: no AOD/VOD record is
+     * written until a session reaches completed, so there's nothing here to
+     * discard.
+     *
+     * @throws \DomainException when the session is already terminal
+     */
+    public function cancel(): void
+    {
+        DB::transaction(function () {
+            $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
+
+            if (! in_array($status, self::NON_TERMINAL_STATUSES, true)) {
+                throw new \DomainException('This session can no longer be cancelled.');
+            }
+
+            $this->update(['status' => self::STATUS_CANCELLED]);
+        });
     }
 
     /**

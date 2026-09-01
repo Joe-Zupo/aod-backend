@@ -132,4 +132,25 @@ class SessionController extends Controller
             'session' => new SessionResource($session->load('activeParticipants.user')),
         ]);
     }
+
+    /**
+     * Cancel Session
+     *
+     * Transition a queuing or in_progress session to cancelled. Restricted to
+     * any active Coach on the session's team, not just its creator.
+     */
+    public function cancel(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('cancel', $session);
+
+        try {
+            $session->cancel();
+        } catch (\DomainException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Session cancelled.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
 }

@@ -42,5 +42,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sessions/{session}', [SessionController::class, 'show']);
     Route::post('/sessions/{session}/join', [SessionController::class, 'join']);
     Route::post('/sessions/{session}/start', [SessionController::class, 'start']);
+    Route::post('/sessions/{session}/cancel', [SessionController::class, 'cancel']);
 
 });
