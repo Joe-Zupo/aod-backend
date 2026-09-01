@@ -12,7 +12,7 @@ _Avoid_: scrim, match, game (when referring to the system entity)
 The synchronized data spine of a Session — the canonical clock that AOD, VOD, and Riot match data are all aligned to via millisecond offsets.
 
 **Session status**:
-A Session's lifecycle state: `queuing` → `in_progress` → `completed`, or `cancelled` — reachable from either `queuing` (before recording starts) or `in_progress` (aborting a run already underway). A Coach starts the Session to move it from `queuing` to `in_progress`. That transition is also when per-participant recording begins. The Session Participant status machine that governs recording is defined separately. A Session reaches `completed` only when a Coach declares it stopped and at least one Session Participant's AOD and VOD have been delivered. A stop declaration alone does not complete a Session, and neither does data arriving without one. Aborting an `in_progress` Session never persists partial AOD/VOD: recordings only become server-side records once a session actually reaches `completed`, so cancelling mid-run discards nothing that was ever saved.
+A Session's lifecycle state: `queuing` → `in_progress` → `completed`, or `cancelled` — reachable from either `queuing` (before recording starts) or `in_progress` (aborting a run already underway). A Coach starts the Session to move it from `queuing` to `in_progress`, which is allowed only once every present player has given Consent. That transition is also when recording begins for every consented player. The per-participant recording lifecycle is a separate term (see **Session Participant status**). A Session reaches `completed` only when a Coach declares it stopped and at least one Session Participant's AOD and VOD have been delivered. A stop declaration alone does not complete a Session, and neither does data arriving without one. Aborting an `in_progress` Session never persists partial AOD/VOD: recordings only become server-side records once a session actually reaches `completed`, so cancelling mid-run discards nothing that was ever saved.
 _Avoid_: lobby, waiting (used by the design flowchart, but `queuing` is the canonical term going forward)
 
 **Team Member**:
@@ -23,7 +23,15 @@ Reflects whether a user is authenticated since their last logout — set the mom
 _Avoid_: presence, active (as in "actively connected") — neither implies the auth-boundary meaning this term actually has
 
 **Session Participant**:
-A Team Member's participation in one specific Session. Its role is a snapshot of the member's team role at join time — it does not itself grant or change any authority.
+A Team Member's participation in one specific Session. Its role is a snapshot of the member's team role at join time — it does not itself grant or change any authority. Where the participant sits in the recording lifecycle is tracked separately as **Session Participant status**.
+
+**Session Participant status**:
+Where one Session Participant sits in the recording lifecycle for their Session: `needs_consent`, then `ready`, then `recording`, then `completed`. It only ever moves forward, one step at a time. A player joins at `needs_consent` and reaches `ready` by giving Consent. A Coach joins at `ready` and never records, so a Coach's status stays `ready` for the whole Session. Every consented player moves to `recording` when the Coach starts the Session. `completed` marks a participant whose AOD and VOD have been delivered, which happens as part of Session completion.
+_Avoid_: state, stage
+
+**Consent** (of a Session Participant):
+A player's explicit agreement to be recorded in one Session. Giving it moves their Session Participant status from `needs_consent` to `ready`. It is asked once per Session and every time: a player who leaves and rejoins gives it again. A Coach has nothing to consent to. There is no Coach override to start a Session past a player who has not consented; that player leaves, or the Coach cancels the Session.
+_Avoid_: opt-in, waiver, agreement
 
 **Main Coach**:
 A team's sole designated leader. Only the Main Coach can manage team membership (approve/reject join requests, remove members). If the Main Coach leaves the team, the team disbands.
