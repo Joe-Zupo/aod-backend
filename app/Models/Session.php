@@ -132,6 +132,32 @@ class Session extends Model
     }
 
     /**
+     * Transition this session from queuing to in_progress. The single seam
+     * that owns the start guard, so any caller inherits it: a session can
+     * only start with at least one player (non-Coach participant) who is
+     * currently in it, so we never record an empty room.
+     *
+     * @throws \DomainException when the guard is not met
+     */
+    public function start(): void
+    {
+        if ($this->status !== self::STATUS_QUEUING) {
+            throw new \DomainException('Only a queuing session can be started.');
+        }
+
+        $hasActivePlayer = $this->participants()
+            ->whereNull('left_at')
+            ->whereNotIn('participant_role', User::TEAM_COACH_ROLES)
+            ->exists();
+
+        if (! $hasActivePlayer) {
+            throw new \DomainException('A session needs at least one player before it can start.');
+        }
+
+        $this->update(['status' => self::STATUS_IN_PROGRESS]);
+    }
+
+    /**
      * Add a user as a Session Participant, or reactivate their prior
      * participation if they'd left. The single seam that owns all three
      * states — never joined, previously left, currently active — so callers

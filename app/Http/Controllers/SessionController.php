@@ -111,4 +111,25 @@ class SessionController extends Controller
             'session' => new SessionResource($session->load('activeParticipants.user')),
         ]);
     }
+
+    /**
+     * Start Session
+     *
+     * Transition a queuing session to in_progress. Restricted to any active
+     * Coach on the session's team, not just its creator.
+     */
+    public function start(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('start', $session);
+
+        try {
+            $session->start();
+        } catch (\DomainException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Session started.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
 }
