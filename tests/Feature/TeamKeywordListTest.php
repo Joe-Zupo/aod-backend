@@ -168,4 +168,250 @@ class TeamKeywordListTest extends TestCase
         $this->assertDatabaseMissing('team_keywords', ['keyword' => 'FLASHING']);
         $this->assertSame(['flashing'], $this->informativeKeywords($team));
     }
+
+    public function test_a_missing_category_key_is_rejected(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', ['informative_keywords' => ['alpha']])
+            ->assertStatus(422)
+            ->assertJsonPath('data.errors.declarative_keywords.0', fn ($m) => is_string($m));
+    }
+
+    public function test_a_non_string_entry_is_rejected(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['alpha', 123],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertStatus(422);
+    }
+
+    public function test_an_entry_with_interior_whitespace_is_rejected(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['flash bang'],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertStatus(422);
+    }
+
+    public function test_surrounding_whitespace_is_trimmed_and_the_entry_accepted(): void
+    {
+        [$team, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['  bravo  '],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertOk();
+
+        $this->assertSame(['bravo'], $this->informativeKeywords($team));
+    }
+
+    public function test_an_entry_longer_than_64_characters_is_rejected(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => [str_repeat('a', 65)],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertStatus(422);
+    }
+
+    public function test_an_empty_string_entry_is_rejected(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['   '],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertStatus(422);
+    }
+
+    public function test_more_than_200_entries_in_a_category_is_rejected(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => array_map(fn ($i) => "word{$i}", range(1, 201)),
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertStatus(422);
+    }
+
+    public function test_case_insensitive_duplicates_within_a_payload_are_rejected(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['A', 'a'],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('data.errors.informative_keywords.0', fn ($m) => is_string($m));
+    }
+
+    public function test_exact_duplicates_within_a_payload_are_rejected(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['flash', 'flash'],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertStatus(422);
+    }
+
+    public function test_a_word_in_both_categories_is_rejected(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['smoke'],
+                'declarative_keywords' => ['Smoke'],
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('data.errors.declarative_keywords.0', fn ($m) => is_string($m));
+    }
+
+    public function test_an_assistant_coach_can_update_the_keyword_list(): void
+    {
+        [$team, $mainCoach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+        $assistant = $this->makeAndAttachMember($team, 'assistant_coach', 'Coach', $mainCoach);
+
+        $this->actingAs($assistant, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['bravo'],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertOk();
+
+        $this->assertSame(['bravo'], $this->informativeKeywords($team));
+    }
+
+    public function test_a_player_cannot_update_the_keyword_list(): void
+    {
+        [$team, $mainCoach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $mainCoach);
+
+        $this->actingAs($player, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['bravo'],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertForbidden();
+
+        $this->assertSame(['alpha'], $this->informativeKeywords($team));
+    }
+
+    public function test_a_player_sending_an_invalid_payload_is_forbidden_not_a_validation_error(): void
+    {
+        [$team, $mainCoach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $mainCoach);
+
+        $this->actingAs($player, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', ['informative_keywords' => 'not-an-array'])
+            ->assertForbidden();
+    }
+
+    public function test_an_outsider_cannot_update_a_teams_keyword_list(): void
+    {
+        [$team] = $this->teamWithKeywords(['alpha'], ['pushing']);
+        $outsider = User::factory()->create();
+        $outsider->assignRole('Coach');
+
+        $this->actingAs($outsider, 'sanctum')
+            ->putJson('/api/teams/settings/keywords?team='.$team->id, [
+                'informative_keywords' => ['bravo'],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertNotFound();
+
+        $this->assertSame(['alpha'], $this->informativeKeywords($team));
+    }
+
+    public function test_a_coach_of_another_team_cannot_update_this_teams_keyword_list(): void
+    {
+        [$team] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $otherCoach = User::factory()->create();
+        $otherCoach->assignRole('Coach');
+        $otherTeam = Team::factory()->create(['team_name' => 'Second Team', 'team_code' => 'TM-SECOND01']);
+        $this->attachActiveMember($otherTeam, $otherCoach, 'main_coach', $otherCoach);
+
+        $this->actingAs($otherCoach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords?team='.$team->id, [
+                'informative_keywords' => ['bravo'],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertNotFound();
+
+        $this->assertSame(['alpha'], $this->informativeKeywords($team));
+    }
+
+    public function test_the_response_body_matches_the_get_settings_shape(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+
+        $get = $this->actingAs($coach, 'sanctum')->getJson('/api/teams/settings')->json('data.settings');
+
+        $put = $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['alpha'],
+                'declarative_keywords' => ['pushing'],
+            ])->json('data.settings');
+
+        $this->assertSame(array_keys($get), array_keys($put));
+    }
+
+    public function test_updated_at_advances_after_a_real_change(): void
+    {
+        [, $coach] = $this->teamWithKeywords(['alpha'], ['pushing']);
+        $before = $this->actingAs($coach, 'sanctum')->getJson('/api/teams/settings')->json('data.settings.updated_at');
+
+        $this->travel(1)->hour();
+
+        $after = $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['alpha', 'bravo'],
+                'declarative_keywords' => ['pushing'],
+            ])->json('data.settings.updated_at');
+
+        $this->assertNotSame($before, $after);
+        $this->assertTrue(strtotime($after) > strtotime($before));
+    }
+
+    public function test_it_self_heals_missing_bucket_rows_and_the_submitted_list_wins(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $team->settings()->delete();
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings/keywords', [
+                'informative_keywords' => ['alpha'],
+                'declarative_keywords' => ['pushing'],
+            ])
+            ->assertOk();
+
+        $this->assertSame(['alpha'], $this->informativeKeywords($team));
+        $this->assertSame(['pushing'], $this->declarativeKeywords($team));
+        $this->assertDatabaseHas('team_settings', ['team_id' => $team->id, 'setting_name' => 'dead_air_threshold']);
+    }
 }

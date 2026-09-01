@@ -128,6 +128,13 @@ class TeamSettingsController extends Controller
         if ($newRows !== []) {
             TeamKeyword::insertOrIgnore($newRows);
         }
+
+        // Move the bucket row's timestamp only when the list actually changed,
+        // so the combined settings `updated_at` reflects a keyword edit while a
+        // no-op resubmit leaves it untouched.
+        if ($staleIds->isNotEmpty() || $newRows !== []) {
+            $bucket->touch();
+        }
     }
 
     /**
