@@ -83,13 +83,4 @@ class SessionPolicy
     {
         return $this->isActiveCoach($user, $session->team);
     }
-
-    /**
-     * Re-running failed transcripts is the same coaching tier as running the
-     * session: any active Coach on its team.
-     */
-    public function transcribe(User $user, Session $session): Response
-    {
-        return $this->isActiveCoach($user, $session->team);
-    }
 }

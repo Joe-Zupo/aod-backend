@@ -51,8 +51,9 @@ ER diagram had them:
 
 The ER diagram is stale (its `aod_records` still has a `timeline_id` the shipped
 schema does not) and its word rows live under `comm_events`, which do not exist
-yet. A dedicated transcript row also makes the re-run path clean: reset one row
-and drop its words, rather than nulling eight columns on `aod_records`. When the
+yet. A dedicated transcript row also keeps any future re-processing clean: reset
+one row and drop its words, rather than nulling eight columns on `aod_records`.
+When the
 detection milestone builds `comm_events` / `comm_event_words`, it relates them to
 `transcript_words` or copies the spans it needs; that milestone decides.
 
@@ -84,10 +85,10 @@ writes the word rows and the transcript fields in one transaction. A webhook
 would avoid polling but needs a public callback URL, which dev does not have;
 `services.assemblyai.webhook_url` is reserved for when one exists.
 
-`POST /sessions/{session}/transcribe` re-runs every `failed` transcript for a
-processing session, overwriting each. It is a no-op success when none are
-failed, and 409 when the session is not processing. Same coach-only tier as
-start / cancel.
+Transcription is entirely automatic: it is a consequence of completing the
+session, with no endpoint to trigger or re-trigger it. A transcript that reaches
+`failed` stays `failed` for now. A recovery path (a scheduled retry of `failed`
+rows, or a re-run endpoint) is a follow-up, once there is a real need for one.
 
 ## Failure model
 
@@ -119,13 +120,14 @@ left to the pipeline-completion milestone.
 
 ## Considered options
 
-- **Auto-dispatch only, no re-run endpoint.** Rejected. A permanently failed
-  transcript needs a manual recovery lever, and scoping the endpoint to `failed`
-  rows keeps it from double-submitting a healthy one.
+- **A re-run endpoint (`POST /sessions/{session}/transcribe`) alongside the
+  auto-dispatch.** Dropped. Transcription follows from completion with nothing to
+  call; a `failed` transcript has no recovery path yet, and adding one before it
+  is needed is speculative surface.
 - **A `Session` status per pipeline step vs. state on the transcript rows.**
   The session enum gains only `processing`. Per-transcript state lives on the
-  transcript rows, so a re-run does not reopen a session state and consumers of
-  session status do not have to understand transcription.
+  transcript rows, so re-processing does not reopen a session state and consumers
+  of session status do not have to understand transcription.
 - **One orchestrator job per session that fans out internally.** Rejected in
   favour of one job per AOD: it is the natural retry unit, AssemblyAI's own
   concurrency queue absorbs the fan-out, and one player's failure does not touch

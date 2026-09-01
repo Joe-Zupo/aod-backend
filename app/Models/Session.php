@@ -142,48 +142,6 @@ class Session extends Model
     }
 
     /**
-     * Reset every failed transcript for this session and re-dispatch its
-     * SubmitTranscription job. Overwrites, it does not version: the failed
-     * row's words are dropped and its fields cleared before it goes back to
-     * queued. Returns how many were re-queued; zero is a valid no-op.
-     */
-    public function retryFailedTranscripts(): int
-    {
-        $requeued = DB::transaction(function () {
-            // Lock the failed rows for the length of the reset so two
-            // concurrent retry calls cannot both claim the same transcript and
-            // dispatch it twice.
-            $failed = $this->transcriptsQuery()
-                ->where('status', Transcript::STATUS_FAILED)
-                ->lockForUpdate()
-                ->get();
-
-            foreach ($failed as $transcript) {
-                $transcript->words()->delete();
-                $transcript->update([
-                    'status' => Transcript::STATUS_QUEUED,
-                    'provider_transcript_id' => null,
-                    'text' => null,
-                    'language_code' => null,
-                    'confidence' => null,
-                    'audio_duration_ms' => null,
-                    'error' => null,
-                    'raw_response' => null,
-                    'poll_count' => 0,
-                ]);
-            }
-
-            return $failed;
-        });
-
-        foreach ($requeued as $transcript) {
-            SubmitTranscription::dispatch($transcript);
-        }
-
-        return $requeued->count();
-    }
-
-    /**
      * Cancel this session if it's non-terminal and has no active (not-left)
      * participant remaining at all — once everyone who was in it has left,
      * there's no one left to run or take part in it.
