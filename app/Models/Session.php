@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Events\SessionParticipantJoined;
 use App\Events\SessionParticipantLeft;
+use App\Events\SessionStatusChanged;
 use App\Exceptions\SessionTransitionException;
 use App\Support\Broadcasting;
 use Illuminate\Database\Eloquent\Builder;
@@ -12,7 +13,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use RuntimeException;
+use Throwable;
 
 class Session extends Model
 {
@@ -23,6 +29,13 @@ class Session extends Model
      * SESSION_DRIVER=database table, unrelated to this domain entity.
      */
     protected $table = 'app_sessions';
+
+    /**
+     * The disk AOD/VOD files are stored on. Each record row also stores its own
+     * disk name, so moving to another disk later is a data migration rather
+     * than a schema change (see docs/adr/0003-session-recording-storage.md).
+     */
+    public const RECORDING_DISK = 'local';
 
     public const STATUS_QUEUING = 'queuing';
 
@@ -174,6 +187,8 @@ class Session extends Model
 
             $this->update(['status' => self::STATUS_IN_PROGRESS]);
 
+            Broadcasting::safely(new SessionStatusChanged($this));
+
             // Only players record; Coach rows stay at `ready` for the run.
             $activePlayers->each(
                 fn (SessionParticipant $player) => $player->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_RECORDING),
@@ -200,8 +215,130 @@ class Session extends Model
 
             $this->update(['status' => self::STATUS_CANCELLED]);
 
+            Broadcasting::safely(new SessionStatusChanged($this));
+
             $this->departActiveParticipants();
         });
+    }
+
+    /**
+     * Complete this in_progress session by storing one recording participant's
+     * audio and video, moving in_progress -> completed, and sweeping every
+     * recording participant to completed. The single seam that owns the
+     * completion guards. The session must be in_progress and the named user
+     * must currently be recording in it. All of it runs in one transaction, so
+     * a session that is not completed never has a stored record attached, and
+     * any file written before a mid-transaction failure is deleted on the way
+     * out.
+     *
+     * @throws SessionTransitionException when the session is not in_progress or
+     *                                    the user is not recording in it
+     */
+    public function complete(User $participant, UploadedFile $audio, UploadedFile $video): void
+    {
+        $writtenPaths = [];
+
+        try {
+            DB::transaction(function () use ($participant, $audio, $video, &$writtenPaths) {
+                $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
+
+                if ($status !== self::STATUS_IN_PROGRESS) {
+                    throw new SessionTransitionException('Only an in_progress session can be completed.');
+                }
+
+                $row = $this->participants()
+                    ->where('user_id', $participant->id)
+                    ->where('participant_status', SessionParticipant::PARTICIPANT_STATUS_RECORDING)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $row) {
+                    throw new SessionTransitionException('That participant is not recording in this session.');
+                }
+
+                $writtenPaths[] = $audioPath = $this->storeRecording($audio, $participant->id, 'aod');
+                $writtenPaths[] = $videoPath = $this->storeRecording($video, $participant->id, 'vod');
+
+                AodRecord::create($this->recordAttributes($row, $audio, $audioPath));
+                VodRecord::create($this->recordAttributes($row, $video, $videoPath));
+
+                $this->update(['status' => self::STATUS_COMPLETED]);
+
+                Broadcasting::safely(new SessionStatusChanged($this));
+
+                $this->participants()
+                    ->where('participant_status', SessionParticipant::PARTICIPANT_STATUS_RECORDING)
+                    ->with('user')
+                    ->get()
+                    ->each(fn (SessionParticipant $swept) => $swept->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_COMPLETED));
+            });
+        } catch (Throwable $e) {
+            foreach ($writtenPaths as $path) {
+                Storage::disk(self::RECORDING_DISK)->delete($path);
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
+     * Store one uploaded recording under this session's layout and return its
+     * disk-relative path. The extension is derived from the validated MIME
+     * type, not the client-supplied filename.
+     *
+     * @throws RuntimeException when the disk write fails (the local disk is
+     *                          configured not to throw on its own)
+     */
+    private function storeRecording(UploadedFile $file, int $userId, string $kind): string
+    {
+        $name = $kind.'.'.$this->extensionForMime($file->getMimeType());
+
+        $path = $file->storeAs("session-recordings/{$this->id}/{$userId}", $name, self::RECORDING_DISK);
+
+        if ($path === false) {
+            throw new RuntimeException("Failed to store the {$kind} recording for session {$this->id}.");
+        }
+
+        return $path;
+    }
+
+    /**
+     * The stored file extension for one of the audio/video MIME types the
+     * completion request allows. Falls back to `bin` for anything unrecognised,
+     * which the request validation should already have rejected.
+     */
+    private function extensionForMime(?string $mime): string
+    {
+        return match ($mime) {
+            'audio/mpeg' => 'mp3',
+            'audio/wav', 'audio/x-wav' => 'wav',
+            'audio/aac' => 'aac',
+            'audio/ogg' => 'ogg',
+            'audio/webm' => 'weba',
+            'audio/mp4' => 'm4a',
+            'video/mp4' => 'mp4',
+            'video/webm' => 'webm',
+            'video/quicktime' => 'mov',
+            'video/x-matroska' => 'mkv',
+            default => 'bin',
+        };
+    }
+
+    /**
+     * The column values shared by an aod_records / vod_records row.
+     *
+     * @return array<string, mixed>
+     */
+    private function recordAttributes(SessionParticipant $participant, UploadedFile $file, string $path): array
+    {
+        return [
+            'session_participant_id' => $participant->id,
+            'disk' => self::RECORDING_DISK,
+            'path' => $path,
+            'original_filename' => Str::limit($file->getClientOriginalName(), 255, ''),
+            'mime_type' => $file->getMimeType(),
+            'size_bytes' => $file->getSize(),
+        ];
     }
 
     /**

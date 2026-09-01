@@ -66,15 +66,15 @@ class SessionPolicy
     }
 
     /**
-     * Any active Coach on the session's team may start/stop/cancel it, not just
-     * whoever created it.
+     * Any active Coach on the session's team may start/complete/cancel it, not
+     * just whoever created it.
      */
     public function start(User $user, Session $session): Response
     {
         return $this->isActiveCoach($user, $session->team);
     }
 
-    public function stop(User $user, Session $session): Response
+    public function complete(User $user, Session $session): Response
     {
         return $this->isActiveCoach($user, $session->team);
     }

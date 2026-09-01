@@ -3,10 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\SessionTransitionException;
+use App\Http\Requests\CompleteSessionRequest;
 use App\Http\Requests\StoreSessionRequest;
 use App\Http\Resources\SessionResource;
 use App\Models\Session;
 use App\Models\Team;
+use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -174,6 +176,32 @@ class SessionController extends Controller
         }
 
         return $this->success('Session cancelled.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
+
+    /**
+     * Complete Session
+     *
+     * Store one recording participant's audio and video, then transition the
+     * in_progress session to completed and sweep every recording participant to
+     * completed. Restricted to any active Coach on the session's team, not just
+     * its creator. Rejected with 422 if the session is not in_progress or the
+     * named user is not recording in it.
+     */
+    public function complete(CompleteSessionRequest $request, Session $session): JsonResponse
+    {
+        $this->authorize('complete', $session);
+
+        $participant = User::findOrFail($request->integer('user_id'));
+
+        try {
+            $session->complete($participant, $request->file('audio'), $request->file('video'));
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Session completed.', [
             'session' => new SessionResource($session->load('activeParticipants.user')),
         ]);
     }
