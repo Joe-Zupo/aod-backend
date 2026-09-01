@@ -103,6 +103,76 @@ class Session extends Model
     }
 
     /**
+     * Every transcript belonging to this session, reached through its
+     * participants' AOD records. Session -> AodRecord is itself a hop through
+     * SessionParticipant, so this is a plain subquery rather than a relation.
+     */
+    public function transcripts(): Builder
+    {
+        return Transcript::query()->whereIn(
+            'aod_record_id',
+            AodRecord::query()
+                ->select('id')
+                ->whereIn('session_participant_id', $this->participants()->select('id')),
+        );
+    }
+
+    /**
+     * How far this session's per-AOD transcription has got, as one aggregate
+     * over the transcript rows: total, and how many have reached `completed`
+     * or `failed`. This is the only progress the `processing` phase exposes;
+     * the session itself carries no per-transcript state.
+     *
+     * @return array{total: int, completed: int, failed: int}
+     */
+    public function transcriptionProgress(): array
+    {
+        $counts = $this->transcripts()
+            ->selectRaw('count(*) as total')
+            ->selectRaw('coalesce(sum(status = ?), 0) as completed', [Transcript::STATUS_COMPLETED])
+            ->selectRaw('coalesce(sum(status = ?), 0) as failed', [Transcript::STATUS_FAILED])
+            ->first();
+
+        return [
+            'total' => (int) $counts->total,
+            'completed' => (int) $counts->completed,
+            'failed' => (int) $counts->failed,
+        ];
+    }
+
+    /**
+     * Reset every failed transcript for this session and re-dispatch its
+     * SubmitTranscription job. Overwrites, it does not version: the failed
+     * row's words are dropped and its fields cleared before it goes back to
+     * queued. Returns how many were re-queued; zero is a valid no-op.
+     */
+    public function retryFailedTranscripts(): int
+    {
+        $failed = $this->transcripts()->where('status', Transcript::STATUS_FAILED)->get();
+
+        foreach ($failed as $transcript) {
+            DB::transaction(function () use ($transcript) {
+                $transcript->words()->delete();
+                $transcript->update([
+                    'status' => Transcript::STATUS_QUEUED,
+                    'provider_transcript_id' => null,
+                    'text' => null,
+                    'language_code' => null,
+                    'confidence' => null,
+                    'audio_duration_ms' => null,
+                    'error' => null,
+                    'raw_response' => null,
+                    'poll_count' => 0,
+                ]);
+            });
+
+            SubmitTranscription::dispatch($transcript);
+        }
+
+        return $failed->count();
+    }
+
+    /**
      * Cancel this session if it's non-terminal and has no active (not-left)
      * participant remaining at all — once everyone who was in it has left,
      * there's no one left to run or take part in it.

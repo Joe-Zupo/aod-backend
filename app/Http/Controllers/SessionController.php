@@ -77,11 +77,17 @@ class SessionController extends Controller
      * Session Return
      *
      * Return a session and its participants. Restricted to any active member
-     * of the session's team.
+     * of the session's team. Refused with 409 while the session is processing:
+     * the analysis pipeline is mid-run and there is no coherent session view to
+     * return yet. Progress is on the team session index instead.
      */
     public function show(Request $request, Session $session): JsonResponse
     {
         $this->authorize('view', $session);
+
+        if ($session->status === Session::STATUS_PROCESSING) {
+            return $this->error('This session is still processing.', 409);
+        }
 
         return $this->success('Session retrieved.', [
             'session' => new SessionResource($session->load('activeParticipants.user')),
@@ -212,6 +218,29 @@ class SessionController extends Controller
         }
 
         return $this->success('Session completed.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
+
+    /**
+     * Re-transcribe
+     *
+     * Re-run every failed transcript for a processing session, overwriting each
+     * (its words are dropped and its fields cleared before it is re-queued).
+     * A no-op success when none are failed. Restricted to any active Coach on
+     * the session's team. Rejected with 409 unless the session is processing.
+     */
+    public function transcribe(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('transcribe', $session);
+
+        if ($session->status !== Session::STATUS_PROCESSING) {
+            return $this->error('Only a processing session can be re-transcribed.', 409);
+        }
+
+        $requeued = $session->retryFailedTranscripts();
+
+        return $this->success("Re-queued {$requeued} failed transcript(s).", [
             'session' => new SessionResource($session->load('activeParticipants.user')),
         ]);
     }

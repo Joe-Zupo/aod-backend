@@ -19,6 +19,12 @@ class SessionResource extends JsonResource
             'status' => $this->status,
             'created_at' => $this->created_at,
             'participants' => SessionParticipantResource::collection($this->whenLoaded('activeParticipants')),
+            // Only a processing session runs the aggregate query; every other
+            // state omits the key entirely.
+            'transcription' => $this->when(
+                $this->status === Session::STATUS_PROCESSING,
+                fn () => $this->transcriptionProgress(),
+            ),
         ];
     }
 }

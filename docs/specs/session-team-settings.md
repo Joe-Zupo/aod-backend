@@ -1,5 +1,11 @@
 # Session Lifecycle & Team Settings
 
+> Partly superseded by the transcription milestone (`docs/adr/0004-transcription-pipeline.md`).
+> The `completed` session status is replaced by `processing` and the pipeline
+> states that follow it, and the `Timeline` is now created when a session enters
+> `processing` rather than at session creation (reversing user story 20 and the
+> "created together in one transaction on session creation" decision below).
+
 ## Problem Statement
 
 Coaches need to configure how their team's communication gets detected (which keywords/phrases matter, how long is "too quiet") and need to run an actual recording session with their roster — neither exists yet. The backend currently only has auth and team membership; there's no way to create a session, join one, or configure detection settings.

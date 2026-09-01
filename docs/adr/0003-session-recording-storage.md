@@ -1,5 +1,9 @@
 # 3. Session recording storage
 
+> Superseded in part by ADR 0004: completion now moves a session to `processing`,
+> not `completed`, and the Timeline is created then rather than at session
+> creation.
+
 `POST /sessions/{session}/complete` is the one path that turns delivered
 AOD/VOD files into stored records and moves a Session to `completed` (see the
 **Session status** entry in `CONTEXT.md`). The files, and the tables that track

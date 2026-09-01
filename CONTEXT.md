@@ -9,11 +9,12 @@ A single recorded game (one scrim or match), from lobby through completion. Scop
 _Avoid_: scrim, match, game (when referring to the system entity)
 
 **Timeline**:
-The synchronized data spine of a Session — the canonical clock that AOD, VOD, and Riot match data are all aligned to via millisecond offsets.
+The synchronized data spine of a Session, the canonical clock that AOD, VOD, and Riot match data are aligned to via millisecond offsets. Created when the Session enters `processing`, not at Session creation, so a `queuing`, `in_progress`, or `cancelled` Session has none (see `docs/adr/0004-transcription-pipeline.md`).
 
 **Session status**:
-A Session's lifecycle state: `queuing` → `in_progress` → `completed`, or `cancelled` — reachable from either `queuing` (before recording starts) or `in_progress` (aborting a run already underway). A Coach starts the Session to move it from `queuing` to `in_progress`, which is allowed only once every present player has given Consent. That transition is also when recording begins for every consented player. The per-participant recording lifecycle is a separate term (see **Session Participant status**). A Coach completes an `in_progress` Session in one call that carries an audio and video slot for every recording player; it completes once at least one slot holds both. There is no separate stop declaration, and data never arrives ahead of it. Aborting an `in_progress` Session never persists partial AOD/VOD: recordings only become server-side records once a session actually reaches `completed`, so cancelling mid-run discards nothing that was ever saved.
-_Avoid_: lobby, waiting (used by the design flowchart, but `queuing` is the canonical term going forward)
+A Session's lifecycle state: `queuing`, then `in_progress`, then `processing`, or `cancelled` from either `queuing` (before recording starts) or `in_progress` (aborting a run already underway). A Coach starts the Session to move it from `queuing` to `in_progress`, allowed only once every present player has given Consent, and that transition is also when recording begins for every consented player. The per-participant recording lifecycle is a separate term (see **Session Participant status**). A Coach completes an `in_progress` Session in one call that carries an audio and video slot for every recording player; it moves to `processing` once at least one slot holds both. There is no separate stop declaration, and data never arrives ahead of it. Aborting an `in_progress` Session never persists partial AOD/VOD: recordings only become server-side records once a Session reaches `processing`, so cancelling mid-run discards nothing that was ever saved.
+`processing` is the first state of the analysis pipeline, whose full target is `processing`, then `timeline_ready`, then `annotating`, then `ready_for_review` (shown to coaches as "Timeline Ready"). Only `processing` is built so far; the later states arrive with the milestones that produce their transitions (see `docs/adr/0004-transcription-pipeline.md`). A `processing` Session is not "live": it does not block the team from starting the next Session, `GET /sessions/{id}` refuses it with 409, and the team session index still lists it with a transcription-progress figure.
+_Avoid_: lobby, waiting (used by the design flowchart, but `queuing` is the canonical term going forward); completed (the pipeline replaced it as the post-recording state)
 
 **Team Member**:
 A user's ongoing relationship to a team (active, pending, or removed), independent of any particular Session.
@@ -53,3 +54,11 @@ Fixed taxonomy of exactly two values, grounded in the communication-effectivenes
 
 **Dead Air**:
 A stretch of a Session where no team member communicated at all, evaluated across the whole team's combined audio — not per individual player.
+
+**Transcript** (of an AOD):
+One AssemblyAI transcription of one player's stored audio, one per `aod_records` row. Carries its own status (`queued`, then `processing`, then `completed` or `failed`), the full text, the detected language, an overall confidence, and the raw provider response. Only English and Filipino are accepted; a transcript that comes back in any other language is `failed`. The word-level detail is a separate term (see **Transcript Word**). Re-running a `failed` transcript overwrites it; transcripts are not versioned. See `docs/adr/0004-transcription-pipeline.md`.
+_Avoid_: transcription (that is the process), caption, subtitle
+
+**Transcript Word**:
+One token of a Transcript, with its start and end in milliseconds and the model's confidence, kept in transcript order. Timestamps are relative to the start of the audio file; under the current zero-offset assumption they are read as Timeline-relative.
+_Avoid_: token; timestamp (reserved for a later Timeline term)

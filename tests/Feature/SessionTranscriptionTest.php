@@ -8,6 +8,7 @@ use App\Models\AodRecord;
 use App\Models\Session;
 use App\Models\SessionParticipant;
 use App\Models\Transcript;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -212,6 +213,170 @@ class SessionTranscriptionTest extends TestCase
         Http::assertSentCount(4);
     }
 
+    public function test_show_is_blocked_with_409_while_the_session_is_processing(): void
+    {
+        Queue::fake();
+
+        [, $coach, $session, $players] = $this->recordingSession(1);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->assertOk();
+
+        $this->actingAs($coach, 'sanctum')
+            ->getJson("/api/sessions/{$session->id}")
+            ->assertStatus(409)
+            ->assertJsonPath('message', 'This session is still processing.');
+    }
+
+    public function test_show_still_works_for_a_session_that_is_not_processing(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
+        $this->addParticipant($session, $coach, 'main_coach');
+
+        $this->actingAs($coach, 'sanctum')
+            ->getJson("/api/sessions/{$session->id}")
+            ->assertOk()
+            ->assertJsonPath('data.session.id', $session->id);
+    }
+
+    public function test_the_index_reports_transcription_progress_for_a_processing_session(): void
+    {
+        Http::fake([
+            '*/v2/upload' => Http::response(['upload_url' => 'https://cdn.assemblyai.com/u/i']),
+            '*/v2/transcript' => Http::sequence()
+                ->push(['id' => 'txn_a', 'status' => 'queued'])
+                ->push(['id' => 'txn_b', 'status' => 'queued']),
+            '*/v2/transcript/txn_a' => Http::response([
+                'id' => 'txn_a', 'status' => 'completed', 'language_code' => 'en', 'text' => 'x', 'words' => [],
+            ]),
+            '*/v2/transcript/txn_b' => Http::response([
+                'id' => 'txn_b', 'status' => 'error', 'error' => 'bad audio',
+            ]),
+        ]);
+
+        [$team, $coach, $session, $players] = $this->recordingSession(2);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
+                $this->pair($players[0]),
+                $this->pair($players[1]),
+            ]])
+            ->assertOk();
+
+        $this->actingAs($coach, 'sanctum')
+            ->getJson("/api/teams/{$team->id}/sessions")
+            ->assertOk()
+            ->assertJsonPath('data.past_sessions.0.id', $session->id)
+            ->assertJsonPath('data.past_sessions.0.transcription.total', 2)
+            ->assertJsonPath('data.past_sessions.0.transcription.completed', 1)
+            ->assertJsonPath('data.past_sessions.0.transcription.failed', 1);
+    }
+
+    public function test_a_queuing_session_carries_no_transcription_block(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $session = $this->createSession($team, $coach, Session::STATUS_QUEUING);
+        $this->addParticipant($session, $coach, 'main_coach');
+
+        $this->actingAs($coach, 'sanctum')
+            ->getJson("/api/teams/{$team->id}/sessions")
+            ->assertOk()
+            ->assertJsonMissingPath('data.live_session.transcription');
+    }
+
+    public function test_transcribe_endpoint_reruns_only_the_failed_transcripts(): void
+    {
+        Http::fake([
+            '*/v2/upload' => Http::response(['upload_url' => 'https://cdn.assemblyai.com/u/r']),
+            '*/v2/transcript' => Http::sequence()
+                ->push(['id' => 'ok_1', 'status' => 'queued'])
+                ->push(['id' => 'bad_1', 'status' => 'queued'])
+                ->push(['id' => 'bad_2', 'status' => 'queued']),
+            '*/v2/transcript/ok_1' => Http::response([
+                'id' => 'ok_1', 'status' => 'completed', 'language_code' => 'en', 'text' => 'good',
+                'words' => [['text' => 'good', 'start' => 0, 'end' => 50, 'confidence' => 0.9]],
+            ]),
+            '*/v2/transcript/bad_1' => Http::response(['id' => 'bad_1', 'status' => 'error', 'error' => 'bad audio']),
+            '*/v2/transcript/bad_2' => Http::response([
+                'id' => 'bad_2', 'status' => 'completed', 'language_code' => 'en', 'text' => 'recovered',
+                'words' => [['text' => 'recovered', 'start' => 0, 'end' => 80, 'confidence' => 0.9]],
+            ]),
+        ]);
+
+        [, $coach, $session, $players] = $this->recordingSession(2);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
+                $this->pair($players[0]),
+                $this->pair($players[1]),
+            ]])
+            ->assertOk();
+
+        // One completed, one failed.
+        $this->assertSame(1, Transcript::where('status', Transcript::STATUS_COMPLETED)->count());
+        $this->assertSame(1, Transcript::where('status', Transcript::STATUS_FAILED)->count());
+
+        $completedId = Transcript::where('status', Transcript::STATUS_COMPLETED)->value('id');
+        $completedUpdatedAt = Transcript::find($completedId)->updated_at;
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transcribe")
+            ->assertOk();
+
+        // The previously failed one recovered on the second pass with bad_2.
+        $this->assertSame(2, Transcript::where('status', Transcript::STATUS_COMPLETED)->count());
+        $this->assertSame(0, Transcript::where('status', Transcript::STATUS_FAILED)->count());
+        // The already-completed transcript was left untouched.
+        $this->assertEquals($completedUpdatedAt, Transcript::find($completedId)->updated_at);
+    }
+
+    public function test_transcribe_endpoint_is_a_no_op_when_nothing_failed(): void
+    {
+        Http::fake([
+            '*/v2/upload' => Http::response(['upload_url' => 'https://cdn.assemblyai.com/u/n']),
+            '*/v2/transcript' => Http::response(['id' => 'txn_n', 'status' => 'queued']),
+            '*/v2/transcript/txn_n' => Http::response([
+                'id' => 'txn_n', 'status' => 'completed', 'language_code' => 'en', 'text' => 'x', 'words' => [],
+            ]),
+        ]);
+
+        [, $coach, $session, $players] = $this->recordingSession(1);
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->assertOk();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transcribe")
+            ->assertOk();
+
+        $this->assertSame(1, Transcript::where('status', Transcript::STATUS_COMPLETED)->count());
+    }
+
+    public function test_transcribe_endpoint_rejects_a_session_that_is_not_processing(): void
+    {
+        [, $coach, $session] = $this->recordingSession(1);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transcribe")
+            ->assertStatus(409);
+    }
+
+    public function test_a_player_cannot_hit_the_transcribe_endpoint(): void
+    {
+        Queue::fake();
+
+        [, $coach, $session, $players] = $this->recordingSession(1);
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->assertOk();
+
+        $this->actingAs($players[0], 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transcribe")
+            ->assertForbidden();
+    }
+
     /**
      * An in_progress session with $players recording players plus the creating
      * Coach. Returns [$team, $coach, $session, User[] $players].
@@ -235,7 +400,7 @@ class SessionTranscriptionTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function pair(\App\Models\User $player): array
+    private function pair(User $player): array
     {
         return [
             'user_id' => $player->id,

@@ -45,5 +45,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/sessions/{session}/start', [SessionController::class, 'start']);
     Route::post('/sessions/{session}/cancel', [SessionController::class, 'cancel']);
     Route::post('/sessions/{session}/complete', [SessionController::class, 'complete']);
+    Route::post('/sessions/{session}/transcribe', [SessionController::class, 'transcribe']);
 
 });
