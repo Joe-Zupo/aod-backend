@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\SessionTransitionException;
 use App\Models\Session;
 use App\Models\Team;
 use App\Models\User;
@@ -331,7 +332,7 @@ class SessionControlTest extends TestCase
         try {
             $stale->start();
             $this->fail('Expected start() to reject a session cancelled since it was loaded.');
-        } catch (\DomainException $e) {
+        } catch (SessionTransitionException $e) {
             $this->assertSame('Only a queuing session can be started.', $e->getMessage());
         }
 
@@ -353,7 +354,7 @@ class SessionControlTest extends TestCase
         try {
             $stale->cancel();
             $this->fail('Expected cancel() to reject a session completed since it was loaded.');
-        } catch (\DomainException $e) {
+        } catch (SessionTransitionException $e) {
             $this->assertSame('This session can no longer be cancelled.', $e->getMessage());
         }
 
@@ -361,5 +362,43 @@ class SessionControlTest extends TestCase
             'id' => $session->id,
             'status' => Session::STATUS_COMPLETED,
         ]);
+    }
+
+    public function test_cancelling_a_session_marks_every_active_participant_as_left(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
+        $this->addParticipant($session, $coach, 'main_coach');
+        $this->addParticipant($session, $player, 'player');
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->assertOk();
+
+        $this->assertDatabaseMissing('session_participants', [
+            'session_id' => $session->id,
+            'left_at' => null,
+        ]);
+    }
+
+    public function test_cancelling_a_session_preserves_the_left_at_of_a_participant_who_already_left(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
+        $this->addParticipant($session, $coach, 'main_coach');
+        $earlyLeaver = $this->addParticipant($session, $player, 'player');
+        $earlyLeaver->update(['left_at' => now()->subHour()]);
+        $originalLeftAt = $earlyLeaver->fresh()->left_at;
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->assertOk();
+
+        $this->assertSame(
+            $originalLeftAt->toDateTimeString(),
+            $earlyLeaver->fresh()->left_at->toDateTimeString(),
+        );
     }
 }

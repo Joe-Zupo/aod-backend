@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\SessionTransitionException;
 use App\Http\Requests\StoreSessionRequest;
 use App\Http\Resources\SessionResource;
 use App\Models\Session;
@@ -124,7 +125,7 @@ class SessionController extends Controller
 
         try {
             $session->start();
-        } catch (\DomainException $e) {
+        } catch (SessionTransitionException $e) {
             return $this->error($e->getMessage(), 422);
         }
 
@@ -145,7 +146,7 @@ class SessionController extends Controller
 
         try {
             $session->cancel();
-        } catch (\DomainException $e) {
+        } catch (SessionTransitionException $e) {
             return $this->error($e->getMessage(), 422);
         }
 
