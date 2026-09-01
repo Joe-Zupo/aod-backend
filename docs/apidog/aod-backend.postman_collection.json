@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "b1e2b3a4-5c6d-4e7f-8a9b-0c1d2e3f4a5b",
 		"name": "AOD Backend",
-		"description": "Auth, profile, and team endpoints for the AOD backend. Import the accompanying environment file too — run Login or Register once and the `token` variable fills itself in for every other request. Team endpoints act on the caller's own active team automatically; the `team_id` variable is only needed if you want to override that via `?team=`.",
+		"description": "Auth, profile, team, and session endpoints for the AOD backend. Import the accompanying environment file too — run Login or Register once and the `token` variable fills itself in for every other request. Team endpoints act on the caller's own active team automatically; the `team_id` variable is only needed if you want to override that via `?team=`. The Sessions folder walks the full lifecycle: create -> join -> consent -> start -> complete. Completing a session moves it to `processing` and queues an AssemblyAI transcription per stored AOD.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"auth": {
@@ -28,6 +28,7 @@
 									"    if (body.data.token) pm.environment.set('token', body.data.token);",
 									"    if (body.data.user && body.data.user.id) pm.environment.set('user_id', body.data.user.id);",
 									"    if (body.data.team && body.data.team.id) pm.environment.set('team_id', body.data.team.id);",
+									"    if (body.data.team && body.data.team.team_code) pm.environment.set('team_code', body.data.team.team_code);",
 									"}"
 								]
 							}
@@ -343,13 +344,162 @@
 								{ "key": "team", "value": "{{team_id}}", "disabled": true, "description": "Optional. Omit to use your own active team automatically." }
 							]
 						},
-						"description": "Replaces the detection keyword list. Send the COMPLETE desired list per category (same shape as GET /teams/settings) — both keys required; the server inserts new words and deletes any word you omit. Single words only (no spaces), 1-64 chars, max 200 per category; matching is case-insensitive and a word may not appear in both categories. Any active Coach; non-coach 403, non-member 404. Returns the full settings body."
+						"description": "Replaces the detection keyword list. Send the COMPLETE desired list per category (same shape as GET /teams/settings) — both keys required; the server inserts new words and deletes any word you omit. Single words only (no spaces), 1-64 chars, max 200 per category; matching is case-insensitive and a word may not appear in both categories. The list is also what gets sent to AssemblyAI as a word-boost list when a session's AODs are transcribed. Any active Coach; non-coach 403, non-member 404. Returns the full settings body."
+					}
+				}
+			]
+		},
+		{
+			"name": "Sessions",
+			"description": "One recorded game, from lobby (`queuing`) through `in_progress` to `processing`. Lifecycle: Create -> players Join -> players Consent -> Coach Start -> Coach Complete. Completing carries an audio + video slot per recording player, stores the AOD/VOD records, moves the session to `processing`, and queues one AssemblyAI transcription per stored AOD. `processing` is not a terminal state and does not block the team from starting the next session.",
+			"item": [
+				{
+					"name": "List Team Sessions",
+					"request": {
+						"method": "GET",
+						"header": [ { "key": "Accept", "value": "application/json" } ],
+						"url": {
+							"raw": "{{base_url}}/teams/{{team_id}}/sessions?per_page=15&sort=desc",
+							"host": [ "{{base_url}}" ],
+							"path": [ "teams", "{{team_id}}", "sessions" ],
+							"query": [
+								{ "key": "per_page", "value": "15", "description": "1-100, default 15." },
+								{ "key": "sort", "value": "desc", "description": "asc | desc by created_at, default desc." },
+								{ "key": "search", "value": "", "disabled": true, "description": "Optional substring match on session_name." }
+							]
+						},
+						"description": "Any active team member. Returns `data.live_session` (the team's single `queuing` or `in_progress` session, or null) plus a paginated `data.past_sessions` list of everything else. A `processing` session is not \"live\": it appears in `past_sessions`, and its entry carries a `transcription` progress block, e.g. `\"transcription\": { \"total\": 5, \"completed\": 3, \"failed\": 0 }`. Non-processing entries omit that key."
+					}
+				},
+				{
+					"name": "Create Session",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"const body = pm.response.json();",
+									"if (body && body.data && body.data.session && body.data.session.id) {",
+									"    pm.environment.set('session_id', body.data.session.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"session_name\": \"Scrim vs Team B\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/teams/{{team_id}}/sessions",
+							"host": [ "{{base_url}}" ],
+							"path": [ "teams", "{{team_id}}", "sessions" ]
+						},
+						"description": "Any active Coach (main or assistant). Creates a `queuing` session and joins the creating Coach as its first participant. Rejected with 422 if the team already has a `queuing` or `in_progress` session (a `processing` one does not block a new one). The Timeline row is NOT created here — it is created when the session is completed and enters `processing`. Captures `session_id` from the response."
+					}
+				},
+				{
+					"name": "Get Session",
+					"request": {
+						"method": "GET",
+						"header": [ { "key": "Accept", "value": "application/json" } ],
+						"url": {
+							"raw": "{{base_url}}/sessions/{{session_id}}",
+							"host": [ "{{base_url}}" ],
+							"path": [ "sessions", "{{session_id}}" ]
+						},
+						"description": "Any active member of the session's team. Returns the session and its active participants. Refused with 409 (\"This session is still processing.\") while the session is `processing` — read progress from List Team Sessions instead."
+					}
+				},
+				{
+					"name": "Join Session",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Accept", "value": "application/json" } ],
+						"url": {
+							"raw": "{{base_url}}/sessions/{{session_id}}/join",
+							"host": [ "{{base_url}}" ],
+							"path": [ "sessions", "{{session_id}}", "join" ]
+						},
+						"description": "Any active team member, while the session is `queuing`. Idempotent: joining again is a no-op success. A member who previously left is reactivated. Snapshots the caller's current team role onto the participant row."
+					}
+				},
+				{
+					"name": "Give Consent",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Accept", "value": "application/json" } ],
+						"url": {
+							"raw": "{{base_url}}/sessions/{{session_id}}/consent",
+							"host": [ "{{base_url}}" ],
+							"path": [ "sessions", "{{session_id}}", "consent" ]
+						},
+						"description": "The caller's own participant row moves needs_consent -> ready. Idempotent once ready. A Coach has nothing to consent to (422). Consent closes once the session is no longer `queuing`/`in_progress` (422)."
+					}
+				},
+				{
+					"name": "Start Session",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Accept", "value": "application/json" } ],
+						"url": {
+							"raw": "{{base_url}}/sessions/{{session_id}}/start",
+							"host": [ "{{base_url}}" ],
+							"path": [ "sessions", "{{session_id}}", "start" ]
+						},
+						"description": "Any active Coach on the session's team. Moves `queuing` -> `in_progress` and every consented player to `recording`. Rejected with 422 unless the session is `queuing`, at least one player has joined, and every joined player has consented."
+					}
+				},
+				{
+					"name": "Cancel Session",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Accept", "value": "application/json" } ],
+						"url": {
+							"raw": "{{base_url}}/sessions/{{session_id}}/cancel",
+							"host": [ "{{base_url}}" ],
+							"path": [ "sessions", "{{session_id}}", "cancel" ]
+						},
+						"description": "Any active Coach on the session's team. Moves a `queuing` or `in_progress` session to `cancelled`. No AOD/VOD is ever persisted before `processing`, so cancelling mid-run discards nothing that was saved. A `processing` or already-terminal session is rejected with 422."
+					}
+				},
+				{
+					"name": "Complete Session",
+					"request": {
+						"method": "POST",
+						"header": [ { "key": "Accept", "value": "application/json" } ],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{ "key": "players[0][user_id]", "value": "{{player_user_id}}", "type": "text", "description": "Must equal the recording roster exactly across all slots: one slot per player currently in `recording`, no extras, none missing." },
+								{ "key": "players[0][audio]", "type": "file", "src": "", "description": "Optional. mp3/wav/aac/ogg/webm/m4a, max 200 MB. The AOD: this is what gets sent to AssemblyAI." },
+								{ "key": "players[0][video]", "type": "file", "src": "", "description": "Optional. mp4/webm/mov/mkv, max 2 GB. The VOD: stored only, not transcribed." },
+								{ "key": "players[1][user_id]", "value": "", "type": "text", "disabled": true },
+								{ "key": "players[1][audio]", "type": "file", "src": "", "disabled": true },
+								{ "key": "players[1][video]", "type": "file", "src": "", "disabled": true }
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/sessions/{{session_id}}/complete",
+							"host": [ "{{base_url}}" ],
+							"path": [ "sessions", "{{session_id}}", "complete" ]
+						},
+						"description": "Any active Coach on the session's team. multipart/form-data, one `players[N][user_id]` slot per recording player plus optional `players[N][audio]` / `players[N][video]` files. Single-shot: the session completes once at least one slot holds BOTH an audio and a video. On success it stores the AOD/VOD records, creates the Timeline, moves `in_progress` -> `processing`, sweeps every recording participant to `completed`, and (after the transaction commits) queues one AssemblyAI transcription job per stored AOD. Response `data.session.status` is `processing`. Rejected with 422 if the session is not `in_progress`, the submitted user ids do not match the recording roster exactly, or no slot holds a full pair. Enable the `players[1][...]` rows for a second player."
 					}
 				}
 			]
 		}
 	],
 	"variable": [
-		{ "key": "base_url", "value": "http://localhost:8000/api" }
+		{ "key": "base_url", "value": "http://localhost:8000/api" },
+		{ "key": "session_id", "value": "" },
+		{ "key": "player_user_id", "value": "" }
 	]
 }
