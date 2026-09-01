@@ -25,4 +25,14 @@ class TeamSettingsPolicy
     {
         return $this->isActiveCoach($user, $settings->team);
     }
+
+    /**
+     * Managing the detection keyword list is the same coaching-tier work as
+     * updating the dead-air threshold; kept as its own ability so the two can
+     * diverge later without a migration of intent.
+     */
+    public function updateKeywords(User $user, TeamSettings $settings): Response
+    {
+        return $this->isActiveCoach($user, $settings->team);
+    }
 }
