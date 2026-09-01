@@ -95,6 +95,40 @@ class SessionTranscriptionFailureTest extends TestCase
         Bus::assertDispatched(PollTranscription::class);
     }
 
+    public function test_submit_job_does_not_resubmit_a_transcript_already_past_queued(): void
+    {
+        Http::fake([
+            '*/v2/upload' => Http::response(['upload_url' => 'https://cdn.assemblyai.com/u/x']),
+            '*/v2/transcript' => Http::response(['id' => 'txn_x', 'status' => 'queued']),
+        ]);
+        Bus::fake();
+
+        $transcript = Transcript::factory()->processing('already_submitted')->create();
+
+        (new SubmitTranscription($transcript))->handle(app(AssemblyAiClient::class));
+
+        Http::assertNothingSent();
+        $this->assertSame('already_submitted', $transcript->fresh()->provider_transcript_id);
+        Bus::assertNotDispatched(PollTranscription::class);
+    }
+
+    public function test_a_failed_poll_request_does_not_consume_the_poll_budget(): void
+    {
+        Http::fake(['*/v2/transcript/prov_flaky' => Http::response('boom', 500)]);
+        Bus::fake();
+
+        $transcript = Transcript::factory()->processing('prov_flaky')->create(['poll_count' => 5]);
+
+        try {
+            $this->poll($transcript);
+        } catch (\Throwable) {
+            // The real queue would retry the job; the point is that the failed
+            // attempt did not eat into the poll budget.
+        }
+
+        $this->assertSame(5, $transcript->fresh()->poll_count);
+    }
+
     public function test_a_permanently_failing_submit_job_marks_the_transcript_failed(): void
     {
         $transcript = Transcript::factory()->create(['status' => Transcript::STATUS_QUEUED]);

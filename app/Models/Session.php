@@ -103,11 +103,12 @@ class Session extends Model
     }
 
     /**
-     * Every transcript belonging to this session, reached through its
-     * participants' AOD records. Session -> AodRecord is itself a hop through
-     * SessionParticipant, so this is a plain subquery rather than a relation.
+     * A query for every transcript belonging to this session, reached through
+     * its participants' AOD records. Session -> AodRecord is itself a hop
+     * through SessionParticipant, so this is a plain subquery, not an Eloquent
+     * relation, and is named accordingly.
      */
-    public function transcripts(): Builder
+    public function transcriptsQuery(): Builder
     {
         return Transcript::query()->whereIn(
             'aod_record_id',
@@ -127,7 +128,7 @@ class Session extends Model
      */
     public function transcriptionProgress(): array
     {
-        $counts = $this->transcripts()
+        $counts = $this->transcriptsQuery()
             ->selectRaw('count(*) as total')
             ->selectRaw('coalesce(sum(status = ?), 0) as completed', [Transcript::STATUS_COMPLETED])
             ->selectRaw('coalesce(sum(status = ?), 0) as failed', [Transcript::STATUS_FAILED])
@@ -148,10 +149,16 @@ class Session extends Model
      */
     public function retryFailedTranscripts(): int
     {
-        $failed = $this->transcripts()->where('status', Transcript::STATUS_FAILED)->get();
+        $requeued = DB::transaction(function () {
+            // Lock the failed rows for the length of the reset so two
+            // concurrent retry calls cannot both claim the same transcript and
+            // dispatch it twice.
+            $failed = $this->transcriptsQuery()
+                ->where('status', Transcript::STATUS_FAILED)
+                ->lockForUpdate()
+                ->get();
 
-        foreach ($failed as $transcript) {
-            DB::transaction(function () use ($transcript) {
+            foreach ($failed as $transcript) {
                 $transcript->words()->delete();
                 $transcript->update([
                     'status' => Transcript::STATUS_QUEUED,
@@ -164,12 +171,16 @@ class Session extends Model
                     'raw_response' => null,
                     'poll_count' => 0,
                 ]);
-            });
+            }
 
+            return $failed;
+        });
+
+        foreach ($requeued as $transcript) {
             SubmitTranscription::dispatch($transcript);
         }
 
-        return $failed->count();
+        return $requeued->count();
     }
 
     /**

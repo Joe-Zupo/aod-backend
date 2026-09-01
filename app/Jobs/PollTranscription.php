@@ -55,15 +55,19 @@ class PollTranscription implements ShouldQueue
             return;
         }
 
+        // Fetch first: a transient failure here throws and the queue retries the
+        // job, and that retry must not have already burned a poll off the
+        // budget. Only a poll that actually reached the provider counts.
+        $remote = $client->getTranscript($transcript->provider_transcript_id);
         $transcript->increment('poll_count');
 
-        $remote = $client->getTranscript($transcript->provider_transcript_id);
         $status = $remote['status'] ?? null;
 
         if ($status === 'error') {
             $transcript->update([
                 'status' => Transcript::STATUS_FAILED,
                 'error' => Str::limit($remote['error'] ?? 'The provider reported an error.', 255, ''),
+                'raw_response' => $remote,
             ]);
 
             return;

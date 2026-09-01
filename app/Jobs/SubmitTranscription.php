@@ -42,7 +42,11 @@ class SubmitTranscription implements ShouldQueue
     {
         $transcript = $this->transcript->fresh();
 
-        if (! $transcript || $transcript->status === Transcript::STATUS_FAILED) {
+        // Only a still-queued transcript is submittable. A retry that re-runs
+        // after a prior attempt already submitted (worker killed between the
+        // submit and the status update, say) must not upload and submit a
+        // second time and orphan the first provider transcript.
+        if (! $transcript || $transcript->status !== Transcript::STATUS_QUEUED) {
             return;
         }
 

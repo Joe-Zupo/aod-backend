@@ -20,15 +20,25 @@ class AssemblyAiClient
 
     /**
      * Upload a local file and return the private `upload_url` AssemblyAI hands
-     * back for it.
+     * back for it. Streamed from disk rather than read whole into memory, since
+     * a recording can be hundreds of MB.
      */
     public function upload(string $absolutePath): string
     {
-        return $this->request()
-            ->withBody(file_get_contents($absolutePath), 'application/octet-stream')
-            ->post('/v2/upload')
-            ->throw()
-            ->json('upload_url');
+        $handle = fopen($absolutePath, 'rb');
+
+        try {
+            return $this->request()
+                ->timeout(300)
+                ->withBody($handle, 'application/octet-stream')
+                ->post('/v2/upload')
+                ->throw()
+                ->json('upload_url');
+        } finally {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
+        }
     }
 
     /**
