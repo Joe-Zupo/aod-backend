@@ -15,7 +15,6 @@ class AssemblyAiClient
     public function __construct(
         private readonly string $apiKey,
         private readonly string $baseUrl,
-        private readonly string $speechModel,
     ) {}
 
     /**
@@ -52,9 +51,9 @@ class AssemblyAiClient
     public function submitTranscript(string $audioUrl, array $wordBoost): array
     {
         return $this->request()
+            ->asJson()
             ->post('/v2/transcript', [
                 'audio_url' => $audioUrl,
-                'speech_model' => $this->speechModel,
                 'language_detection' => true,
                 'speaker_labels' => false,
                 'word_boost' => array_values($wordBoost),

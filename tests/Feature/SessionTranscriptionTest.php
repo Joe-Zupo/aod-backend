@@ -134,6 +134,9 @@ class SessionTranscriptionTest extends TestCase
 
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v2/upload'));
         Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v2/transcript')
+            // The submit body must be JSON, not form-encoded: AssemblyAI rejects
+            // a form-encoded transcript request with a 400.
+            && $request->hasHeader('Content-Type', 'application/json')
             && $request['audio_url'] === 'https://cdn.assemblyai.com/upload/abc'
             && $request['language_detection'] === true
             && $request['speaker_labels'] === false

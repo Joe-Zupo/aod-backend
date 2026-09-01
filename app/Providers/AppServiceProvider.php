@@ -15,7 +15,6 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(AssemblyAiClient::class, fn () => new AssemblyAiClient(
             (string) config('services.assemblyai.api_key'),
             rtrim((string) config('services.assemblyai.base_url'), '/'),
-            (string) config('services.assemblyai.speech_model'),
         ));
     }
 
