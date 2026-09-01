@@ -35,7 +35,8 @@ A Coach-role team member without leadership authority over team membership, but 
 A team's live, single configuration for detection tuning (dead-air threshold, keyword list). Editing it never retroactively changes analysis already produced for a `completed` Session.
 
 **Team Keyword**:
-One configured keyword or phrase a team wants detected in transcripts, tagged with a Category.
+One configured single word a team wants detected in transcripts, tagged with a Category. Callouts read naturally as phrases (see the Category examples below), but detection in this prototype matches individual transcript tokens, so a Team Keyword is always one word — no spaces. Multi-word phrase matching is deferred (see `docs/adr/0001-single-word-team-keywords.md`).
+_Avoid_: phrase
 
 **Category** (of a Team Keyword / Callout Detection):
 Fixed taxonomy of exactly two values, grounded in the communication-effectiveness research this project builds on:

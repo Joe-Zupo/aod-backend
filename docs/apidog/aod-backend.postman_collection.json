@@ -306,6 +306,45 @@
 							"path": [ "teams", "join-requests", "{{target_user_id}}" ]
 						}
 					}
+				},
+				{
+					"name": "Get Team Settings",
+					"request": {
+						"method": "GET",
+						"header": [ { "key": "Accept", "value": "application/json" } ],
+						"url": {
+							"raw": "{{base_url}}/teams/settings",
+							"host": [ "{{base_url}}" ],
+							"path": [ "teams", "settings" ],
+							"query": [
+								{ "key": "team", "value": "{{team_id}}", "disabled": true, "description": "Optional. Omit to use your own active team automatically." }
+							]
+						},
+						"description": "Detection settings for the team: dead_air_threshold_ms plus the informative_keywords and declarative_keywords lists. Any active Coach (main or assistant); non-coach members get 403, non-members 404."
+					}
+				},
+				{
+					"name": "Update Team Keywords",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Accept", "value": "application/json" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"informative_keywords\": [\"planted\", \"defused\", \"one\", \"two\"],\n    \"declarative_keywords\": [\"flashing\", \"smoking\", \"rotating\"]\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/teams/settings/keywords",
+							"host": [ "{{base_url}}" ],
+							"path": [ "teams", "settings", "keywords" ],
+							"query": [
+								{ "key": "team", "value": "{{team_id}}", "disabled": true, "description": "Optional. Omit to use your own active team automatically." }
+							]
+						},
+						"description": "Replaces the detection keyword list. Send the COMPLETE desired list per category (same shape as GET /teams/settings) — both keys required; the server inserts new words and deletes any word you omit. Single words only (no spaces), 1-64 chars, max 200 per category; matching is case-insensitive and a word may not appear in both categories. Any active Coach; non-coach 403, non-member 404. Returns the full settings body."
+					}
 				}
 			]
 		}
