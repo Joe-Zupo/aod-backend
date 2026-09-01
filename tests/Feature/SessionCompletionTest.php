@@ -309,6 +309,27 @@ class SessionCompletionTest extends TestCase
         ]);
     }
 
+    public function test_a_partial_file_write_deletes_the_recording_that_already_landed(): void
+    {
+        [$team, $coach, $session, $player] = $this->inProgressSessionWithRecordingPlayer();
+        $audioPath = "session-recordings/{$session->id}/{$player->id}/aod.mp3";
+
+        // Audio write lands, the following video write fails: the audio file
+        // that did land must be deleted on the way out.
+        $disk = \Mockery::mock(Filesystem::class);
+        $disk->shouldReceive('putFileAs')->twice()->andReturn($audioPath, false);
+        $disk->shouldReceive('delete')->once()->with($audioPath);
+        Storage::shouldReceive('disk')->with('local')->andReturn($disk);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", $this->recordings($player->id))
+            ->assertStatus(500);
+
+        $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_IN_PROGRESS]);
+        $this->assertDatabaseCount('aod_records', 0);
+        $this->assertDatabaseCount('vod_records', 0);
+    }
+
     public function test_complete_decides_on_the_stored_status_not_the_loaded_one(): void
     {
         [$team, $coach, $session, $player] = $this->inProgressSessionWithRecordingPlayer();
