@@ -54,10 +54,11 @@ class SessionController extends Controller
     /**
      * Create Session
      *
-     * Create a Session and its Timeline together, atomically, for the given team,
-     * and add the creating Coach as its first Session Participant. Restricted to
-     * any active Coach, main or assistant. Rejected if the team already has a
-     * non-terminal (queuing/in_progress) session.
+     * Create a Session for the given team and add the creating Coach as its
+     * first Session Participant. Restricted to any active Coach, main or
+     * assistant. Rejected if the team already has a non-terminal
+     * (queuing/in_progress) session. The Timeline is created later, when the
+     * session is completed and enters processing.
      */
     public function store(StoreSessionRequest $request, Team $team): JsonResponse
     {

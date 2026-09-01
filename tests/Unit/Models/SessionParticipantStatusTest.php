@@ -194,13 +194,13 @@ class SessionParticipantStatusTest extends TestCase
         $session->recordConsent($player);
     }
 
-    public function test_record_consent_rejects_a_completed_session(): void
+    public function test_record_consent_rejects_a_processing_session(): void
     {
         $team = $this->team();
         $player = $this->member($team, 'player');
         $session = Session::factory()->for($team)->create();
         $session->joinOrRejoin($player);
-        $session->update(['status' => Session::STATUS_COMPLETED]);
+        $session->update(['status' => Session::STATUS_PROCESSING]);
 
         $this->expectExceptionMessage('Consent can no longer be recorded for this session.');
 

@@ -105,11 +105,11 @@ class SessionConsentTest extends TestCase
             ->assertJsonPath('message', 'You are not in this session.');
     }
 
-    public function test_consenting_in_a_completed_session_is_rejected(): void
+    public function test_consenting_in_a_processing_session_is_rejected(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
         $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
-        $session = $this->createSession($team, $coach, 'completed');
+        $session = $this->createSession($team, $coach, 'processing');
         $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT);
 
         $this->actingAs($player, 'sanctum')

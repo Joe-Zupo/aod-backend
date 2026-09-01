@@ -11,6 +11,7 @@ use App\Models\SessionParticipant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Role;
 use Tests\Concerns\CreatesTeamsAndSessions;
@@ -36,6 +37,7 @@ class SessionBroadcastingTest extends TestCase
         ]);
 
         Storage::fake('local');
+        Queue::fake();
     }
 
     public function test_consent_dispatches_session_participant_status_changed(): void
@@ -326,7 +328,7 @@ class SessionBroadcastingTest extends TestCase
         Event::assertDispatched(
             SessionStatusChanged::class,
             fn ($event) => $event->session->id === $session->id
-                && $event->session->status === Session::STATUS_COMPLETED,
+                && $event->session->status === Session::STATUS_PROCESSING,
         );
     }
 

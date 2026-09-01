@@ -25,7 +25,7 @@ class SessionStatusChangedTest extends TestCase
     {
         $session = new Session([
             'team_id' => 7,
-            'status' => Session::STATUS_COMPLETED,
+            'status' => Session::STATUS_PROCESSING,
         ]);
         $session->id = 42;
 
@@ -34,7 +34,7 @@ class SessionStatusChangedTest extends TestCase
         $this->assertSame([
             'session_id' => 42,
             'team_id' => 7,
-            'status' => Session::STATUS_COMPLETED,
+            'status' => Session::STATUS_PROCESSING,
         ], json_decode(json_encode($payload), true));
     }
 }

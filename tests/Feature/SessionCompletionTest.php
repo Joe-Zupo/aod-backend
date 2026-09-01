@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Role;
 use Tests\Concerns\CreatesTeamsAndSessions;
@@ -35,6 +36,7 @@ class SessionCompletionTest extends TestCase
         }
 
         Storage::fake('local');
+        Queue::fake();
     }
 
     public function test_active_coach_completes_a_full_roster_when_one_player_has_both_files(): void
@@ -47,9 +49,9 @@ class SessionCompletionTest extends TestCase
                 $this->empty($players[1]),
             ]])
             ->assertOk()
-            ->assertJsonPath('data.session.status', Session::STATUS_COMPLETED);
+            ->assertJsonPath('data.session.status', Session::STATUS_PROCESSING);
 
-        $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_COMPLETED]);
+        $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_PROCESSING]);
         $this->assertDatabaseHas('aod_records', ['session_participant_id' => $parts[$players[0]->id]->id]);
         $this->assertDatabaseHas('vod_records', ['session_participant_id' => $parts[$players[0]->id]->id]);
         $this->assertDatabaseCount('aod_records', 1);
@@ -266,9 +268,9 @@ class SessionCompletionTest extends TestCase
         $this->assertWrongStatusRejected(Session::STATUS_QUEUING);
     }
 
-    public function test_completing_an_already_completed_session_is_rejected(): void
+    public function test_completing_an_already_processing_session_is_rejected(): void
     {
-        $this->assertWrongStatusRejected(Session::STATUS_COMPLETED);
+        $this->assertWrongStatusRejected(Session::STATUS_PROCESSING);
     }
 
     public function test_completing_a_cancelled_session_is_rejected(): void
@@ -284,7 +286,7 @@ class SessionCompletionTest extends TestCase
         $this->actingAs($assistant, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
             ->assertOk()
-            ->assertJsonPath('data.session.status', Session::STATUS_COMPLETED);
+            ->assertJsonPath('data.session.status', Session::STATUS_PROCESSING);
     }
 
     public function test_a_player_cannot_complete_a_session(): void

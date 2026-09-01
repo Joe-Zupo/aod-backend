@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class AodRecord extends Model
 {
@@ -22,5 +23,10 @@ class AodRecord extends Model
     public function sessionParticipant(): BelongsTo
     {
         return $this->belongsTo(SessionParticipant::class);
+    }
+
+    public function transcript(): HasOne
+    {
+        return $this->hasOne(Transcript::class);
     }
 }

@@ -6,6 +6,7 @@ use App\Events\SessionParticipantJoined;
 use App\Events\SessionParticipantLeft;
 use App\Events\SessionStatusChanged;
 use App\Exceptions\SessionTransitionException;
+use App\Jobs\SubmitTranscription;
 use App\Support\Broadcasting;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -42,10 +43,18 @@ class Session extends Model
 
     public const STATUS_IN_PROGRESS = 'in_progress';
 
-    public const STATUS_COMPLETED = 'completed';
+    public const STATUS_PROCESSING = 'processing';
 
     public const STATUS_CANCELLED = 'cancelled';
 
+    /**
+     * The two statuses that count as a live session for the team: they block a
+     * second session, drive the index's live_session slot, and keep the
+     * auto-cancel and consent windows open. `processing` is deliberately not
+     * among them. Once the coach has completed the session its recording is
+     * done and stored, so the team is free to start the next scrim while
+     * analysis runs in the background.
+     */
     public const NON_TERMINAL_STATUSES = [self::STATUS_QUEUING, self::STATUS_IN_PROGRESS];
 
     protected $fillable = [
@@ -112,12 +121,14 @@ class Session extends Model
     }
 
     /**
-     * Create the Session, its Timeline, and the creator's Session Participant
-     * row together, atomically. Returns null if the team already has a
-     * non-terminal session, without creating anything. The single seam
-     * through which a Session can come into existence, so any future caller
-     * (a CLI command, a queued job, this controller) inherits the same
-     * locking and one-non-terminal-session invariant for free.
+     * Create the Session and the creator's Session Participant row together,
+     * atomically. Returns null if the team already has a non-terminal session,
+     * without creating anything. The single seam through which a Session can
+     * come into existence, so any future caller (a CLI command, a queued job,
+     * this controller) inherits the same locking and one-non-terminal-session
+     * invariant for free. The Timeline is not created here: it is created in
+     * complete(), when the session enters processing and there is recorded data
+     * for it to be the spine of.
      */
     public static function createForTeam(Team $team, User $creator, string $sessionName): ?self
     {
@@ -138,8 +149,6 @@ class Session extends Model
                 'session_name' => $sessionName,
                 'status' => self::STATUS_QUEUING,
             ]);
-
-            Timeline::create(['session_id' => $session->id]);
 
             $session->joinOrRejoin($creator);
 
@@ -225,13 +234,16 @@ class Session extends Model
     /**
      * Complete this in_progress session from one call that carries an audio and
      * video slot for every recording player. Stores whatever files the slots
-     * hold, moves in_progress -> completed, and sweeps every recording
-     * participant to completed. The single seam that owns the completion
-     * guards, checked in order: the session must be in_progress; the submitted
-     * user ids must match the recording roster exactly; at least one slot must
-     * hold both an audio and a video. All of it runs in one transaction, so a
-     * session that is not completed never has a stored record attached, and any
-     * file written before a mid-transaction failure is deleted on the way out.
+     * hold, creates the Timeline, moves in_progress -> processing, sweeps every
+     * recording participant to completed, and queues one transcript row plus one
+     * SubmitTranscription job per stored AOD. The single seam that owns the
+     * completion guards, checked in order: the session must be in_progress; the
+     * submitted user ids must match the recording roster exactly; at least one
+     * slot must hold both an audio and a video. The stores and the status move
+     * run in one transaction, so a session that is not processing never has a
+     * stored record attached, and any file written before a mid-transaction
+     * failure is deleted on the way out. Transcription jobs are dispatched only
+     * once that transaction has committed.
      *
      * @param  list<array{user_id: int, audio: ?UploadedFile, video: ?UploadedFile}>  $entries
      *
@@ -240,9 +252,10 @@ class Session extends Model
     public function complete(array $entries): void
     {
         $writtenPaths = [];
+        $transcripts = [];
 
         try {
-            DB::transaction(function () use ($entries, &$writtenPaths) {
+            DB::transaction(function () use ($entries, &$writtenPaths, &$transcripts) {
                 $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
 
                 if ($status !== self::STATUS_IN_PROGRESS) {
@@ -271,7 +284,12 @@ class Session extends Model
 
                     if ($entry['audio']) {
                         $writtenPaths[] = $path = $this->storeRecording($entry['audio'], $entry['user_id'], 'aod');
-                        AodRecord::create($this->recordAttributes($participant, $entry['audio'], $path));
+                        $aod = AodRecord::create($this->recordAttributes($participant, $entry['audio'], $path));
+                        $transcripts[] = Transcript::create([
+                            'aod_record_id' => $aod->id,
+                            'provider' => Transcript::PROVIDER_ASSEMBLYAI,
+                            'status' => Transcript::STATUS_QUEUED,
+                        ]);
                     }
 
                     if ($entry['video']) {
@@ -280,7 +298,9 @@ class Session extends Model
                     }
                 }
 
-                $this->update(['status' => self::STATUS_COMPLETED]);
+                $this->update(['status' => self::STATUS_PROCESSING]);
+
+                Timeline::firstOrCreate(['session_id' => $this->id]);
 
                 Broadcasting::safely(new SessionStatusChanged($this));
 
@@ -294,6 +314,13 @@ class Session extends Model
             }
 
             throw $e;
+        }
+
+        // Dispatched only after the transaction has committed, so a worker
+        // never picks up a transcript row that a rolled-back completion left
+        // behind.
+        foreach ($transcripts as $transcript) {
+            SubmitTranscription::dispatch($transcript);
         }
     }
 

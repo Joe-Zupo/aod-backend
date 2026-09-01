@@ -128,11 +128,11 @@ class SessionControlTest extends TestCase
         ]);
     }
 
-    public function test_starting_a_completed_session_is_rejected(): void
+    public function test_starting_a_processing_session_is_rejected(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
         $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
-        $session = $this->createSession($team, $coach, Session::STATUS_COMPLETED);
+        $session = $this->createSession($team, $coach, Session::STATUS_PROCESSING);
         $this->addParticipant($session, $coach, 'main_coach');
         $this->addParticipant($session, $player, 'player');
 
@@ -143,7 +143,7 @@ class SessionControlTest extends TestCase
 
         $this->assertDatabaseHas('app_sessions', [
             'id' => $session->id,
-            'status' => Session::STATUS_COMPLETED,
+            'status' => Session::STATUS_PROCESSING,
         ]);
     }
 
@@ -248,10 +248,10 @@ class SessionControlTest extends TestCase
         ]);
     }
 
-    public function test_cancelling_a_completed_session_is_rejected(): void
+    public function test_cancelling_a_processing_session_is_rejected(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
-        $session = $this->createSession($team, $coach, Session::STATUS_COMPLETED);
+        $session = $this->createSession($team, $coach, Session::STATUS_PROCESSING);
         $this->addParticipant($session, $coach, 'main_coach');
 
         $this->actingAs($coach, 'sanctum')
@@ -261,7 +261,7 @@ class SessionControlTest extends TestCase
 
         $this->assertDatabaseHas('app_sessions', [
             'id' => $session->id,
-            'status' => Session::STATUS_COMPLETED,
+            'status' => Session::STATUS_PROCESSING,
         ]);
     }
 
@@ -391,20 +391,20 @@ class SessionControlTest extends TestCase
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
         $session = $this->createSession($team, $coach, 'queuing');
 
-        // A concurrent request completed this session after we loaded it.
+        // A concurrent request moved this session to processing after we loaded it.
         $stale = Session::find($session->id);
-        Session::whereKey($session->id)->update(['status' => Session::STATUS_COMPLETED]);
+        Session::whereKey($session->id)->update(['status' => Session::STATUS_PROCESSING]);
 
         try {
             $stale->cancel();
-            $this->fail('Expected cancel() to reject a session completed since it was loaded.');
+            $this->fail('Expected cancel() to reject a session moved to processing since it was loaded.');
         } catch (SessionTransitionException $e) {
             $this->assertSame('This session can no longer be cancelled.', $e->getMessage());
         }
 
         $this->assertDatabaseHas('app_sessions', [
             'id' => $session->id,
-            'status' => Session::STATUS_COMPLETED,
+            'status' => Session::STATUS_PROCESSING,
         ]);
     }
 
