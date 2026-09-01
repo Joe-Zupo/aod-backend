@@ -30,7 +30,7 @@ Where one Session Participant sits in the recording lifecycle for their Session:
 _Avoid_: state, stage
 
 **Consent** (of a Session Participant):
-A player's explicit agreement to be recorded in one Session. Giving it moves their Session Participant status from `needs_consent` to `ready`. It is asked once per Session and every time: a player who leaves and rejoins gives it again. A Coach has nothing to consent to. There is no Coach override to start a Session past a player who has not consented; that player leaves, or the Coach cancels the Session.
+A player's explicit agreement to be recorded in one Session. Giving it moves their Session Participant status from `needs_consent` to `ready`. It is asked once per Session and every time; a player who leaves and rejoins gives it again. A Coach has nothing to consent to. There is no Coach override to start a Session past a player who has not consented; that player leaves, or the Coach cancels the Session.
 _Avoid_: opt-in, waiver, agreement
 
 **Main Coach**:

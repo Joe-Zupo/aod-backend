@@ -157,6 +157,7 @@ class Session extends Model
             $activePlayers = $this->participants()
                 ->whereNull('left_at')
                 ->whereNotIn('participant_role', User::TEAM_COACH_ROLES)
+                ->with('user')
                 ->get();
 
             if ($activePlayers->isEmpty()) {
@@ -206,11 +207,11 @@ class Session extends Model
     /**
      * Record the given user's consent on their own participant row, moving it
      * needs_consent -> ready (idempotent once already ready). The single seam
-     * that owns the consent guard: a Coach has nothing to consent to, consent
+     * that owns the consent guard. A Coach has nothing to consent to, consent
      * closes once the session is terminal or the row has moved past ready, and
      * only a participant currently in the session can consent at all. Locks
-     * and re-reads that row inside the transaction so a concurrent move can't
-     * be clobbered between the check and the write.
+     * and re-reads that participant row inside the transaction so a concurrent
+     * move can't be clobbered between the check and the write.
      *
      * @throws SessionTransitionException when consent is not available to this caller
      */
@@ -220,6 +221,7 @@ class Session extends Model
             $participant = $this->participants()
                 ->where('user_id', $user->id)
                 ->whereNull('left_at')
+                ->with('user')
                 ->lockForUpdate()
                 ->first();
 
@@ -315,7 +317,7 @@ class Session extends Model
 
     /**
      * The participant_status a fresh (or freshly rejoined) row starts at,
-     * decided purely from the role snapshot: a Coach has nothing to consent to
+     * decided purely from the role snapshot. A Coach has nothing to consent to
      * and is ready immediately; everyone else must consent first.
      */
     private static function initialParticipantStatus(?string $role): string
