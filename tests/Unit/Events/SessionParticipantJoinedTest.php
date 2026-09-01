@@ -31,6 +31,7 @@ class SessionParticipantJoinedTest extends TestCase
             'session_id' => 42,
             'user_id' => $user->id,
             'participant_role' => 'main_coach',
+            'participant_status' => 'ready',
             'joined_at' => '2026-08-26 12:00:00',
         ]);
         $participant->setRelation('user', $user);
@@ -46,6 +47,7 @@ class SessionParticipantJoinedTest extends TestCase
             'user_id' => $user->id,
             'username' => 'trevor',
             'participant_role' => 'main_coach',
+            'participant_status' => 'ready',
             'joined_at' => '2026-08-26T12:00:00.000000Z',
             'left_at' => null,
         ], json_decode(json_encode($payload), true));

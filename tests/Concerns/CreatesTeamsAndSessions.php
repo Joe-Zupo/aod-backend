@@ -57,11 +57,16 @@ trait CreatesTeamsAndSessions
         ]);
     }
 
-    private function addParticipant(Session $session, User $user, string $role): SessionParticipant
-    {
+    private function addParticipant(
+        Session $session,
+        User $user,
+        string $role,
+        string $status = SessionParticipant::PARTICIPANT_STATUS_READY,
+    ): SessionParticipant {
         return SessionParticipant::factory()->for($session)->create([
             'user_id' => $user->id,
             'participant_role' => $role,
+            'participant_status' => $status,
         ]);
     }
 }

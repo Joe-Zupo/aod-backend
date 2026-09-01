@@ -127,7 +127,8 @@ class SessionLifecycleTest extends TestCase
             ->getJson("/api/sessions/{$session->id}")
             ->assertOk()
             ->assertJsonPath('data.session.session_name', 'Scrim vs Team B')
-            ->assertJsonCount(1, 'data.session.participants');
+            ->assertJsonCount(1, 'data.session.participants')
+            ->assertJsonPath('data.session.participants.0.participant_status', 'ready');
     }
 
     public function test_outsider_gets_404_viewing_a_session(): void

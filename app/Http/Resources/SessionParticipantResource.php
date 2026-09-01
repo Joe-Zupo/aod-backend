@@ -15,6 +15,7 @@ class SessionParticipantResource extends JsonResource
             'user_id' => $this->user_id,
             'username' => $this->whenLoaded('user', fn () => $this->user->username),
             'participant_role' => $this->participant_role,
+            'participant_status' => $this->participant_status,
             'joined_at' => $this->joined_at,
             'left_at' => $this->left_at,
         ];

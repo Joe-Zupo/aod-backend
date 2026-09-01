@@ -114,6 +114,29 @@ class SessionController extends Controller
     }
 
     /**
+     * Record Consent
+     *
+     * Move the authenticated caller's own participant row from needs_consent
+     * to ready. Idempotent once already ready. Restricted to any active member
+     * of the session's team; a Coach, a non-participant, or a session past the
+     * point of consent is rejected with 422.
+     */
+    public function consent(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('consent', $session);
+
+        try {
+            $session->recordConsent($request->user());
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Consent recorded.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
+
+    /**
      * Start Session
      *
      * Transition a queuing session to in_progress. Restricted to any active

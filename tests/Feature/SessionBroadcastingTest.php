@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Events\SessionParticipantJoined;
 use App\Events\SessionParticipantLeft;
+use App\Events\SessionParticipantStatusChanged;
+use App\Models\SessionParticipant;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Event;
 use Spatie\Permission\Models\Role;
@@ -22,7 +24,64 @@ class SessionBroadcastingTest extends TestCase
             Role::create(['name' => $role, 'guard_name' => 'web']);
         }
 
-        Event::fake([SessionParticipantJoined::class, SessionParticipantLeft::class]);
+        Event::fake([
+            SessionParticipantJoined::class,
+            SessionParticipantLeft::class,
+            SessionParticipantStatusChanged::class,
+        ]);
+    }
+
+    public function test_consent_dispatches_session_participant_status_changed(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach);
+        $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT);
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/consent")
+            ->assertOk();
+
+        Event::assertDispatched(
+            SessionParticipantStatusChanged::class,
+            fn ($event) => $event->participant->user_id === $player->id
+                && $event->participant->participant_status === SessionParticipant::PARTICIPANT_STATUS_READY,
+        );
+    }
+
+    public function test_idempotent_consent_dispatches_no_status_change(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach);
+        $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_READY);
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/consent")
+            ->assertOk();
+
+        Event::assertNotDispatched(SessionParticipantStatusChanged::class);
+    }
+
+    public function test_start_dispatches_a_status_change_for_each_recording_player_only(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $one = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $two = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach);
+        $this->addParticipant($session, $coach, 'main_coach');
+        $this->addParticipant($session, $one, 'player', SessionParticipant::PARTICIPANT_STATUS_READY);
+        $this->addParticipant($session, $two, 'player', SessionParticipant::PARTICIPANT_STATUS_READY);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/start")
+            ->assertOk();
+
+        Event::assertDispatchedTimes(SessionParticipantStatusChanged::class, 2);
+        Event::assertNotDispatched(
+            SessionParticipantStatusChanged::class,
+            fn ($event) => $event->participant->user_id === $coach->id,
+        );
     }
 
     public function test_explicit_join_dispatches_session_participant_joined(): void

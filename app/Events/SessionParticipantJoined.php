@@ -34,6 +34,7 @@ class SessionParticipantJoined implements ShouldBroadcastNow
             'user_id' => $this->participant->user_id,
             'username' => $this->participant->user->username,
             'participant_role' => $this->participant->participant_role,
+            'participant_status' => $this->participant->participant_status,
             'joined_at' => $this->participant->joined_at,
             'left_at' => $this->participant->left_at,
         ];

@@ -154,16 +154,29 @@ class Session extends Model
                 throw new SessionTransitionException('Only a queuing session can be started.');
             }
 
-            $hasActivePlayer = $this->participants()
+            $activePlayers = $this->participants()
                 ->whereNull('left_at')
                 ->whereNotIn('participant_role', User::TEAM_COACH_ROLES)
-                ->exists();
+                ->get();
 
-            if (! $hasActivePlayer) {
+            if ($activePlayers->isEmpty()) {
                 throw new SessionTransitionException('A session needs at least one player before it can start.');
             }
 
+            $allConsented = $activePlayers->every(
+                fn (SessionParticipant $player) => $player->participant_status === SessionParticipant::PARTICIPANT_STATUS_READY,
+            );
+
+            if (! $allConsented) {
+                throw new SessionTransitionException('Every player must consent before the session can start.');
+            }
+
             $this->update(['status' => self::STATUS_IN_PROGRESS]);
+
+            // Only players record; Coach rows stay at `ready` for the run.
+            $activePlayers->each(
+                fn (SessionParticipant $player) => $player->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_RECORDING),
+            );
         });
     }
 
@@ -187,6 +200,52 @@ class Session extends Model
             $this->update(['status' => self::STATUS_CANCELLED]);
 
             $this->departActiveParticipants();
+        });
+    }
+
+    /**
+     * Record the given user's consent on their own participant row, moving it
+     * needs_consent -> ready (idempotent once already ready). The single seam
+     * that owns the consent guard: a Coach has nothing to consent to, consent
+     * closes once the session is terminal or the row has moved past ready, and
+     * only a participant currently in the session can consent at all. Locks
+     * and re-reads that row inside the transaction so a concurrent move can't
+     * be clobbered between the check and the write.
+     *
+     * @throws SessionTransitionException when consent is not available to this caller
+     */
+    public function recordConsent(User $user): SessionParticipant
+    {
+        return DB::transaction(function () use ($user) {
+            $participant = $this->participants()
+                ->where('user_id', $user->id)
+                ->whereNull('left_at')
+                ->lockForUpdate()
+                ->first();
+
+            if (! $participant) {
+                throw new SessionTransitionException('You are not in this session.');
+            }
+
+            if (in_array($participant->participant_role, User::TEAM_COACH_ROLES, true)) {
+                throw new SessionTransitionException('A coach has nothing to consent to.');
+            }
+
+            $status = self::whereKey($this->getKey())->value('status');
+
+            $consentOpen = in_array($status, self::NON_TERMINAL_STATUSES, true)
+                && in_array($participant->participant_status, [
+                    SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT,
+                    SessionParticipant::PARTICIPANT_STATUS_READY,
+                ], true);
+
+            if (! $consentOpen) {
+                throw new SessionTransitionException('Consent can no longer be recorded for this session.');
+            }
+
+            $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_READY);
+
+            return $participant;
         });
     }
 
@@ -223,6 +282,8 @@ class Session extends Model
      */
     public function joinOrRejoin(User $user): SessionParticipant
     {
+        $role = $user->teamRole($this->team);
+
         $participant = $this->participants()->where('user_id', $user->id)->first();
 
         if ($participant) {
@@ -230,7 +291,8 @@ class Session extends Model
                 $participant->update([
                     'left_at' => null,
                     'joined_at' => now(),
-                    'participant_role' => $user->teamRole($this->team),
+                    'participant_role' => $role,
+                    'participant_status' => self::initialParticipantStatus($role),
                 ]);
 
                 Broadcasting::safely(new SessionParticipantJoined($participant->setRelation('user', $user)));
@@ -241,12 +303,25 @@ class Session extends Model
 
         $participant = $this->participants()->create([
             'user_id' => $user->id,
-            'participant_role' => $user->teamRole($this->team),
+            'participant_role' => $role,
+            'participant_status' => self::initialParticipantStatus($role),
             'joined_at' => now(),
         ]);
 
         Broadcasting::safely(new SessionParticipantJoined($participant->setRelation('user', $user)));
 
         return $participant;
+    }
+
+    /**
+     * The participant_status a fresh (or freshly rejoined) row starts at,
+     * decided purely from the role snapshot: a Coach has nothing to consent to
+     * and is ready immediately; everyone else must consent first.
+     */
+    private static function initialParticipantStatus(?string $role): string
+    {
+        return in_array($role, User::TEAM_COACH_ROLES, true)
+            ? SessionParticipant::PARTICIPANT_STATUS_READY
+            : SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT;
     }
 }

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Exceptions\SessionTransitionException;
 use App\Models\Session;
+use App\Models\SessionParticipant;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -62,6 +63,49 @@ class SessionControlTest extends TestCase
         $this->assertDatabaseHas('app_sessions', [
             'id' => $session->id,
             'status' => Session::STATUS_QUEUING,
+        ]);
+    }
+
+    public function test_starting_a_session_with_a_player_who_has_not_consented_is_rejected(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, 'queuing');
+        $this->addParticipant($session, $coach, 'main_coach');
+        $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/start")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Every player must consent before the session can start.');
+
+        $this->assertDatabaseHas('app_sessions', [
+            'id' => $session->id,
+            'status' => Session::STATUS_QUEUING,
+        ]);
+    }
+
+    public function test_starting_a_session_moves_consented_players_to_recording_and_leaves_the_coach_ready(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, 'queuing');
+        $this->addParticipant($session, $coach, 'main_coach');
+        $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_READY);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/start")
+            ->assertOk();
+
+        $this->assertDatabaseHas('session_participants', [
+            'session_id' => $session->id,
+            'user_id' => $player->id,
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_RECORDING,
+        ]);
+        $this->assertDatabaseHas('session_participants', [
+            'session_id' => $session->id,
+            'user_id' => $coach->id,
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_READY,
         ]);
     }
 
