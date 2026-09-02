@@ -367,9 +367,35 @@ class SessionCommEventsTest extends TestCase
             ->assertJsonPath('data.session_id', $session->id);
     }
 
+    // --- captions endpoint shape -----------------------------------------
+
+    public function test_captions_returns_one_track_per_recording_participant_with_sentences_and_words(): void
+    {
+        [, $coach, $session, $player] = $this->timelineReadySession(function (Transcript $transcript) {
+            $sentence = $transcript->sentences()->create([
+                'position' => 0, 'text' => 'planting here now.', 'start_ms' => 1000, 'end_ms' => 2000, 'confidence' => 0.9,
+            ]);
+            $transcript->words()->createMany([
+                ['transcript_sentence_id' => $sentence->id, 'position' => 0, 'sentence_position' => 0, 'word' => 'planting', 'start_ms' => 1000, 'end_ms' => 1400, 'confidence' => 0.9],
+                ['transcript_sentence_id' => $sentence->id, 'position' => 1, 'sentence_position' => 1, 'word' => 'here', 'start_ms' => 1500, 'end_ms' => 1700, 'confidence' => 0.9],
+            ]);
+        });
+
+        $this->actingAs($coach, 'sanctum')
+            ->getJson("/api/sessions/{$session->id}/captions")
+            ->assertOk()
+            ->assertJsonPath('data.session_id', $session->id)
+            ->assertJsonPath('data.tracks.0.participant_id', $player->id)
+            ->assertJsonPath('data.tracks.0.user_id', $player->user_id)
+            ->assertJsonPath('data.tracks.0.status', Transcript::STATUS_COMPLETED)
+            ->assertJsonPath('data.tracks.0.sentences.0.text', 'planting here now.')
+            ->assertJsonPath('data.tracks.0.sentences.0.words.0.text', 'planting')
+            ->assertJsonPath('data.tracks.0.sentences.0.words.1.position', 1);
+    }
+
     // --- timeline endpoint shape -------------------------------------------
 
-    public function test_timeline_returns_timestamps_ordered_by_start_with_callouts_and_participant_metadata(): void
+    public function test_timeline_groups_each_participants_timestamps_ordered_by_start_with_metadata(): void
     {
         [, $coach, $session, $player, $transcript] = $this->timelineReadySession(function (Transcript $transcript) {
             $late = $this->commEvent($transcript, ['start_ms' => 40000, 'end_ms' => 41000, 'communication_type' => CommEvent::TYPE_DECLARATIVE, 'content' => 'rotating']);
@@ -383,11 +409,14 @@ class SessionCommEventsTest extends TestCase
             ->getJson("/api/sessions/{$session->id}/timeline")
             ->assertOk()
             ->assertJsonPath('data.timeline.duration_ms', null)
-            ->assertJsonPath('data.timestamps.0.type', 'communication_event')
-            ->assertJsonPath('data.timestamps.0.start_ms', 5000)
-            ->assertJsonPath('data.timestamps.1.start_ms', 40000)
-            ->assertJsonPath('data.timestamps.0.participant_id', $player->id)
-            ->assertJsonPath('data.timestamps.1.callouts.0.normalized_keyword', 'rotating');
+            // No top-level timestamps list: each participant carries its own.
+            ->assertJsonMissingPath('data.timestamps')
+            ->assertJsonPath('data.participants.0.participant_id', $player->id)
+            ->assertJsonPath('data.participants.0.user_id', $player->user_id)
+            ->assertJsonPath('data.participants.0.timestamps.0.type', 'communication_event')
+            ->assertJsonPath('data.participants.0.timestamps.0.start_ms', 5000)
+            ->assertJsonPath('data.participants.0.timestamps.1.start_ms', 40000)
+            ->assertJsonPath('data.participants.0.timestamps.1.callouts.0.normalized_keyword', 'rotating');
 
         $this->assertSame($transcript->id, $response->json('data.participants.0.transcript.id'));
         $this->assertNotNull($response->json('data.participants.0.aod.original_filename'));
@@ -395,12 +424,47 @@ class SessionCommEventsTest extends TestCase
         $this->assertArrayNotHasKey('path', $response->json('data.participants.0.aod'));
     }
 
+    public function test_timeline_keeps_each_participants_events_under_their_own_entry(): void
+    {
+        [$team, $coach, $session, $playerOne] = $this->timelineReadySession(function (Transcript $transcript) {
+            $event = $this->commEvent($transcript, ['start_ms' => 3000, 'end_ms' => 3500, 'content' => 'one calling']);
+            $this->callout($event, $transcript);
+        });
+
+        // A second recording player with their own AOD, transcript and event.
+        $playerTwo = $this->addParticipant(
+            $session,
+            $this->makeAndAttachMember($team, 'player', 'Player', $coach),
+            'player',
+            SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+        );
+        $aodTwo = AodRecord::factory()->for($playerTwo)->create();
+        VodRecord::factory()->for($playerTwo)->create();
+        $transcriptTwo = Transcript::factory()->for($aodTwo)->completed()->create([
+            'audio_duration_ms' => 60000,
+            'comm_events_detected' => true,
+        ]);
+        $eventTwo = $this->commEvent($transcriptTwo, ['start_ms' => 9000, 'end_ms' => 9600, 'content' => 'two calling']);
+        $this->callout($eventTwo, $transcriptTwo, ['keyword' => 'rotating', 'normalized_keyword' => 'rotating']);
+
+        $response = $this->actingAs($coach, 'sanctum')
+            ->getJson("/api/sessions/{$session->id}/timeline")
+            ->assertOk()
+            ->assertJsonPath('data.participants.0.participant_id', $playerOne->id)
+            ->assertJsonPath('data.participants.1.participant_id', $playerTwo->id)
+            ->assertJsonPath('data.participants.0.timestamps.0.content', 'one calling')
+            ->assertJsonPath('data.participants.1.timestamps.0.content', 'two calling');
+
+        $this->assertCount(1, $response->json('data.participants.0.timestamps'));
+        $this->assertCount(1, $response->json('data.participants.1.timestamps'));
+    }
+
     // --- timeline-summary math -------------------------------------------
 
-    public function test_timeline_summary_reports_frequency_counts_and_a_silence_proxy(): void
+    public function test_timeline_summary_reports_frequency_counts_and_silence_percentages(): void
     {
         [, $coach, $session] = $this->timelineReadySession(function (Transcript $transcript) {
-            // window 60000ms. Two informative (redundant), one declarative, one compound.
+            // window 60000ms. Two informative (one redundant), one declarative, one compound.
             $a = $this->commEvent($transcript, ['start_ms' => 0, 'end_ms' => 10000, 'is_redundant' => true]);
             $this->callout($a, $transcript);
             $b = $this->commEvent($transcript, ['start_ms' => 20000, 'end_ms' => 25000, 'communication_type' => CommEvent::TYPE_DECLARATIVE]);
@@ -415,21 +479,24 @@ class SessionCommEventsTest extends TestCase
             ->getJson("/api/sessions/{$session->id}/timeline-summary")
             ->assertOk()
             ->assertJsonPath('data.session_window_ms', 60000)
-            ->assertJsonPath('data.team.counts.informative', 2)
-            ->assertJsonPath('data.team.counts.declarative', 1)
-            ->assertJsonPath('data.team.counts.compound', 1)
-            ->assertJsonPath('data.team.counts.redundant', 1)
-            ->assertJsonPath('data.team.counts.total', 4);
+            ->assertJsonPath('data.team.comm_event_count.informative', 2)
+            ->assertJsonPath('data.team.comm_event_count.declarative', 1)
+            ->assertJsonPath('data.team.comm_event_count.compound', 1)
+            ->assertJsonPath('data.team.comm_event_count.total', 4)
+            ->assertJsonPath('data.team.redundant_count', 1)
+            ->assertJsonMissingPath('data.team.comm_event_count.redundant');
 
         $this->assertEqualsWithDelta(4.0, $response->json('data.team.frequency_per_min'), 0.001);
 
-        // Talk spans merge to [0,10000] + [20000,30000] + [55000,56000] = 21000ms.
-        $this->assertSame(21000, $response->json('data.team.total_talk_ms'));
-        $this->assertSame(39000, $response->json('data.team.total_silence_ms'));
-        // Longest gap is 20000 -> 30000..55000 = 25000ms.
-        $this->assertSame(25000, $response->json('data.team.longest_silence_ms'));
+        // Talk spans merge to [0,10000] + [20000,30000] + [55000,56000] = 21000ms of 60000.
+        $this->assertEqualsWithDelta(35.0, $response->json('data.team.talk_percentage'), 0.001);
+        $this->assertEqualsWithDelta(65.0, $response->json('data.team.silence_percentage'), 0.001);
+        // Longest gap is 30000 -> 55000 = 25000ms of 60000.
+        $this->assertEqualsWithDelta(41.67, $response->json('data.team.longest_silence_percentage'), 0.001);
 
         $this->assertEqualsWithDelta(4.0, $response->json('data.participants.0.frequency_per_min'), 0.001);
+        $this->assertSame(1, $response->json('data.participants.0.redundant_count'));
+        $this->assertSame(4, $response->json('data.participants.0.comm_event_count.total'));
     }
 
     public function test_timeline_endpoints_require_an_active_team_member(): void
