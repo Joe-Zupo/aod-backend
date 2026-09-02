@@ -1,5 +1,11 @@
 # 4. Transcription pipeline
 
+> Amended by ADR 0005: `transcript_words` is now ingested from the sentences
+> endpoint via a `FetchTranscriptSentences` job, not parsed in
+> `PollTranscription`.
+> Amended by ADR 0006: the session now has a coded exit from `processing` to
+> `timeline_ready`, and `comm_events` / `callout_detections` are designed there.
+
 Completing a session used to be its last state change: `POST
 /sessions/{session}/complete` moved it straight to `completed` and stored the
 per-player AOD/VOD (see ADR 0003). Completion is now the entry to an analysis

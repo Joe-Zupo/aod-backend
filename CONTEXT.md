@@ -9,11 +9,11 @@ A single recorded game (one scrim or match), from lobby through completion. Scop
 _Avoid_: scrim, match, game (when referring to the system entity)
 
 **Timeline**:
-The synchronized data spine of a Session, the canonical clock that AOD, VOD, and Riot match data are aligned to via millisecond offsets. Created when the Session enters `processing`, not at Session creation, so a `queuing`, `in_progress`, or `cancelled` Session has none (see `docs/adr/0004-transcription-pipeline.md`).
+The synchronized data spine of a Session, the canonical clock that AOD, VOD, and Riot match data are aligned to via millisecond offsets. Created when the Session enters `processing`, not at Session creation, so a `queuing`, `in_progress`, or `cancelled` Session has none (see `docs/adr/0004-transcription-pipeline.md`). Its Timestamps are produced during `processing`; the Session moves to `timeline_ready` once they are complete (see `docs/adr/0006-communication-events.md`).
 
 **Session status**:
 A Session's lifecycle state: `queuing`, then `in_progress`, then `processing`, or `cancelled` from either `queuing` (before recording starts) or `in_progress` (aborting a run already underway). A Coach starts the Session to move it from `queuing` to `in_progress`, allowed only once every present player has given Consent, and that transition is also when recording begins for every consented player. The per-participant recording lifecycle is a separate term (see **Session Participant status**). A Coach completes an `in_progress` Session in one call that carries an audio and video slot for every recording player; it moves to `processing` once at least one slot holds both. There is no separate stop declaration, and data never arrives ahead of it. Aborting an `in_progress` Session never persists partial AOD/VOD: recordings only become server-side records once a Session reaches `processing`, so cancelling mid-run discards nothing that was ever saved.
-`processing` is the first state of the analysis pipeline, whose full target is `processing`, then `timeline_ready`, then `annotating`, then `ready_for_review` (shown to coaches as "Timeline Ready"). Only `processing` is built so far; the later states arrive with the milestones that produce their transitions (see `docs/adr/0004-transcription-pipeline.md`). A `processing` Session is not "live": it does not block the team from starting the next Session, `GET /sessions/{id}` refuses it with 409, and the team session index still lists it with a transcription-progress figure.
+`processing` is the first state of the analysis pipeline, whose full target is `processing`, then `timeline_ready`, then `annotating`, then `ready_for_review` (shown to coaches as "Timeline Ready"). `processing` and `timeline_ready` are built (see `docs/adr/0004-transcription-pipeline.md` and `docs/adr/0006-communication-events.md`); `annotating` and `ready_for_review` arrive with the milestones that produce their transitions. A Session leaves `processing` for `timeline_ready` automatically once every Transcript has reached a terminal state and its Communication Events have been detected — a permanently `failed` Transcript still counts as done. A `processing` Session is not "live": it does not block the team from starting the next Session, `GET /sessions/{id}` refuses it with 409, and the team session index still lists it with a transcription-progress figure. `timeline_ready` opens the read surface: `GET /sessions/{id}` succeeds again, and the `session_timeline`, `timeline_summary`, and captions endpoints serve the Session.
 _Avoid_: lobby, waiting (used by the design flowchart, but `queuing` is the canonical term going forward); completed (the pipeline replaced it as the post-recording state)
 
 **Team Member**:
@@ -41,7 +41,7 @@ A team's sole designated leader. Only the Main Coach can manage team membership 
 A Coach-role team member without leadership authority over team membership, but with equal standing to the Main Coach for running Sessions (any active Coach, main or assistant, may create a Session).
 
 **Team Settings**:
-A team's live, single configuration for detection tuning (dead-air threshold, keyword list). Editing it never retroactively changes analysis already produced for a `completed` Session.
+A team's live, single configuration for detection tuning (dead-air threshold, keyword list, Communication Event Padding). Editing it never retroactively changes analysis already produced for a Session that has moved past `processing`.
 
 **Team Keyword**:
 One configured single word a team wants detected in transcripts, tagged with a Category. Callouts read naturally as phrases (see the Category examples below), but detection in this prototype matches individual transcript tokens, so a Team Keyword is always one word — no spaces. Multi-word phrase matching is deferred (see `docs/adr/0001-single-word-team-keywords.md`).
@@ -52,13 +52,33 @@ Fixed taxonomy of exactly two values, grounded in the communication-effectivenes
 - **Informative** — shares a current game-state fact the speaker knows that teammates may not (e.g. "enemy is planting", "2 enemies heard in main").
 - **Declarative** — states the initiative the speaker is or will be taking (e.g. "popping a flash", "smoking heaven and CT").
 
+A **Communication Event** carries a `communication_type` derived from the Categories of its Callout Detections: `informative` or `declarative` when they agree, `compound` when both are present. `compound` is a property of the event, not a value a Team Keyword can be tagged with — the keyword taxonomy stays two-valued.
+
 **Dead Air**:
-A stretch of a Session where no team member communicated at all, evaluated across the whole team's combined audio — not per individual player.
+A stretch of a Session where no team member communicated at all, evaluated across the whole team's combined audio — not per individual player. Not yet detected as such: `timeline_summary` reports a provisional team-aggregate silence proxy (`total_silence_ms`, `longest_silence_ms`) derived from Communication Event spans, pending the real Dead Air milestone (threshold, Riot cross-reference, system annotation).
 
 **Transcript** (of an AOD):
-One AssemblyAI transcription of one player's stored audio, one per `aod_records` row. Carries its own status (`queued`, then `processing`, then `completed` or `failed`), the full text, the detected language, an overall confidence, and the raw provider response. Only English and Filipino are accepted; a transcript that comes back in any other language is `failed`. The word-level detail is a separate term (see **Transcript Word**). Re-running a `failed` transcript overwrites it; transcripts are not versioned. See `docs/adr/0004-transcription-pipeline.md`.
-_Avoid_: transcription (that is the process), caption, subtitle
+One AssemblyAI transcription of one player's stored audio, one per `aod_records` row. Carries its own status (`queued`, then `processing`, then `completed` or `failed`), the full text, the detected language, an overall confidence, and the raw provider response. Only English and Filipino are accepted; a transcript that comes back in any other language is `failed`. The sentence and word breakdown are separate terms (see **Transcript Sentence**, **Transcript Word**). Re-running a `failed` transcript overwrites it; transcripts are not versioned. See `docs/adr/0004-transcription-pipeline.md`.
+_Avoid_: transcription (that is the process); subtitle. Caption is the frontend display feature built on Transcript Sentences, not a synonym for this record.
+
+**Transcript Sentence** (of a Transcript):
+One sentence of a Transcript as segmented by AssemblyAI's sentences endpoint, in transcript order, with its millisecond span, an aggregate confidence, and its Transcript Words. The unit the frontend caption display is built on. See `docs/adr/0005-sentence-indexed-transcript-storage.md`.
+_Avoid_: caption (the frontend feature, not this record); line
 
 **Transcript Word**:
-One token of a Transcript, with its start and end in milliseconds and the model's confidence, kept in transcript order. Timestamps are relative to the start of the audio file; under the current zero-offset assumption they are read as Timeline-relative.
-_Avoid_: token; timestamp (reserved for a later Timeline term)
+One token of a Transcript, with its start and end in milliseconds and the model's confidence, kept in transcript order and grouped under its Transcript Sentence. Start and end are relative to the start of the audio file; under the current zero-offset assumption they are read as Timeline-relative.
+_Avoid_: token
+
+**Timestamp** (of a Timeline):
+One marked interval on a Session's Timeline, with a start and end offset in milliseconds. Two kinds are planned: a **Communication Event** (built) and a **Game Event** (a Riot game occurrence — kill, death, spike plant/defuse — deferred). Coach-authored review points may become a third. The `session_timeline` endpoint returns them as one `type`-tagged list.
+_Avoid_: marker; bare "event" (ambiguous between the two kinds)
+
+**Communication Event** (a kind of Timestamp):
+A cluster of one or more Team Keyword hits in a single player's Transcript that fall within Communication Event Padding of one another, taken as one callout. Typed `informative`, `declarative`, or `compound` by the Categories of its hits (see **Category**), and flagged redundant when the cluster repeats a Category or keyword with no new information. Each underlying hit is kept as a Callout Detection. Per player; never merged across players. See `docs/adr/0006-communication-events.md`.
+_Avoid_: callout (reserved for the natural-language phrase a keyword approximates)
+
+**Callout Detection** (of a Communication Event):
+One Team Keyword hit inside a Communication Event: the matched token, its normalized form, the snapshot Category, the millisecond span, and the model confidence. The keyword text and Category are snapshot at detection time; a later Team Settings edit does not change a Callout Detection already stored.
+
+**Communication Event Padding** (of Team Settings):
+The team-configured gap, in milliseconds, within which consecutive Team Keyword hits are taken as one Communication Event — also the window for flagging redundancy. Stored as `comm_event_padding_ms`, default 2000. Snapshot when detection runs; a later edit does not re-run detection on an already-processed Session.
