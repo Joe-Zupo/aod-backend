@@ -51,6 +51,17 @@ class TeamSettingsTest extends TestCase
         ]);
     }
 
+    public function test_creating_a_team_creates_its_comm_event_padding_setting(): void
+    {
+        $team = Team::create(['team_name' => 'Aces of Dawn', 'team_code' => 'TM-AODTEAM1']);
+
+        $this->assertDatabaseHas('team_settings', [
+            'team_id' => $team->id,
+            'setting_name' => 'comm_event_padding_ms',
+            'setting_parameter' => 2000,
+        ]);
+    }
+
     public function test_main_coach_can_view_team_settings(): void
     {
         [$team, $coach] = $this->makeTeamWithMainCoach();
@@ -59,6 +70,7 @@ class TeamSettingsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.settings.team_id', $team->id)
             ->assertJsonPath('data.settings.dead_air_threshold_ms', 5000)
+            ->assertJsonPath('data.settings.comm_event_padding_ms', 2000)
             ->assertJsonCount(count(TeamKeyword::DEFAULT_INFORMATIVE_KEYWORDS), 'data.settings.informative_keywords')
             ->assertJsonCount(count(TeamKeyword::DEFAULT_DECLARATIVE_KEYWORDS), 'data.settings.declarative_keywords');
 
@@ -113,6 +125,41 @@ class TeamSettingsTest extends TestCase
             'setting_name' => 'dead_air_threshold',
             'setting_parameter' => 8000,
         ]);
+    }
+
+    public function test_main_coach_can_update_comm_event_padding(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 5000, 'comm_event_padding_ms' => 3500])
+            ->assertOk()
+            ->assertJsonPath('data.settings.comm_event_padding_ms', 3500);
+
+        $this->assertDatabaseHas('team_settings', [
+            'team_id' => $team->id,
+            'setting_name' => 'comm_event_padding_ms',
+            'setting_parameter' => 3500,
+        ]);
+    }
+
+    public function test_update_without_comm_event_padding_leaves_it_untouched(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 7000])
+            ->assertOk()
+            ->assertJsonPath('data.settings.comm_event_padding_ms', 2000);
+    }
+
+    public function test_update_rejects_a_non_positive_comm_event_padding(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 5000, 'comm_event_padding_ms' => 0])
+            ->assertStatus(422);
     }
 
     public function test_assistant_coach_can_update_dead_air_threshold(): void

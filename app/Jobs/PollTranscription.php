@@ -9,7 +9,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -47,10 +46,7 @@ class PollTranscription implements ShouldQueue
         }
 
         if ($transcript->poll_count >= (int) config('services.assemblyai.max_polls')) {
-            $transcript->update([
-                'status' => Transcript::STATUS_FAILED,
-                'error' => 'Transcription timed out before the provider finished.',
-            ]);
+            $transcript->markFailed('Transcription timed out before the provider finished.');
 
             return;
         }
@@ -64,11 +60,8 @@ class PollTranscription implements ShouldQueue
         $status = $remote['status'] ?? null;
 
         if ($status === 'error') {
-            $transcript->update([
-                'status' => Transcript::STATUS_FAILED,
-                'error' => Str::limit($remote['error'] ?? 'The provider reported an error.', 255, ''),
-                'raw_response' => $remote,
-            ]);
+            $transcript->update(['raw_response' => $remote]);
+            $transcript->markFailed($remote['error'] ?? 'The provider reported an error.');
 
             return;
         }
@@ -85,11 +78,10 @@ class PollTranscription implements ShouldQueue
 
         if ($language !== null && ! in_array($language, $accepted, true)) {
             $transcript->update([
-                'status' => Transcript::STATUS_FAILED,
                 'language_code' => $language,
-                'error' => "Detected language '{$language}' is not supported.",
                 'raw_response' => $remote,
             ]);
+            $transcript->markFailed("Detected language '{$language}' is not supported.");
 
             return;
         }
@@ -116,9 +108,6 @@ class PollTranscription implements ShouldQueue
 
     public function failed(Throwable $e): void
     {
-        $this->transcript->fresh()?->update([
-            'status' => Transcript::STATUS_FAILED,
-            'error' => Str::limit($e->getMessage(), 255, ''),
-        ]);
+        $this->transcript->fresh()?->markFailed($e->getMessage());
     }
 }

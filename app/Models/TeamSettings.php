@@ -17,6 +17,8 @@ class TeamSettings extends Model
 
     public const SETTING_DECLARATIVE_KEYWORDS = 'declarative_keywords';
 
+    public const SETTING_COMM_EVENT_PADDING = 'comm_event_padding_ms';
+
     protected $fillable = [
         'team_id',
         'setting_name',

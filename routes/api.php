@@ -41,6 +41,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/teams/{team}/sessions', [SessionController::class, 'store']);
     Route::get('/sessions/{session}', [SessionController::class, 'show']);
     Route::get('/sessions/{session}/captions', [SessionController::class, 'captions']);
+    Route::get('/sessions/{session}/timeline', [SessionController::class, 'timeline']);
+    Route::get('/sessions/{session}/timeline-summary', [SessionController::class, 'timelineSummary']);
     Route::post('/sessions/{session}/join', [SessionController::class, 'join']);
     Route::post('/sessions/{session}/consent', [SessionController::class, 'consent']);
     Route::post('/sessions/{session}/start', [SessionController::class, 'start']);

@@ -49,10 +49,11 @@ class Team extends Model
     }
 
     /**
-     * Guarantee this team's three named settings rows exist (dead-air threshold,
-     * informative keywords, declarative keywords), seeding a keyword-bucket row's
-     * default keywords the moment it's created. Self-healing: safe to call for a
-     * team that already has some or all of its rows.
+     * Guarantee this team's named settings rows exist (dead-air threshold,
+     * informative keywords, declarative keywords, communication-event padding),
+     * seeding a keyword-bucket row's default keywords the moment it's created.
+     * Self-healing: safe to call for a team that already has some or all of its
+     * rows.
      *
      * @return Collection<string, TeamSettings> keyed by setting_name
      */
@@ -62,6 +63,7 @@ class Team extends Model
             TeamSettings::SETTING_DEAD_AIR_THRESHOLD => ['default' => ['setting_parameter' => 5000]],
             TeamSettings::SETTING_INFORMATIVE_KEYWORDS => ['default' => [], 'seed' => TeamKeyword::CATEGORY_INFORMATIVE],
             TeamSettings::SETTING_DECLARATIVE_KEYWORDS => ['default' => [], 'seed' => TeamKeyword::CATEGORY_DECLARATIVE],
+            TeamSettings::SETTING_COMM_EVENT_PADDING => ['default' => ['setting_parameter' => 2000]],
         ];
 
         return collect($definitions)->map(function (array $definition, string $name) {

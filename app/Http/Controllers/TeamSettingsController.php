@@ -17,8 +17,9 @@ class TeamSettingsController extends Controller
     /**
      * Team Settings Return
      *
-     * Return the active team's detection settings (dead-air threshold). Restricted
-     * to any active Coach, main or assistant.
+     * Return the active team's detection settings (dead-air threshold,
+     * communication-event padding, keyword lists). Restricted to any active
+     * Coach, main or assistant.
      */
     public function show(Request $request): JsonResponse
     {
@@ -34,8 +35,9 @@ class TeamSettingsController extends Controller
     /**
      * Update Team Settings
      *
-     * Update the active team's dead-air threshold. Restricted to any active
-     * Coach, main or assistant.
+     * Update the active team's dead-air threshold, and its communication-event
+     * padding when that field is supplied. Restricted to any active Coach, main
+     * or assistant.
      */
     public function update(UpdateTeamSettingsRequest $request): JsonResponse
     {
@@ -48,6 +50,12 @@ class TeamSettingsController extends Controller
         $settings->get(TeamSettings::SETTING_DEAD_AIR_THRESHOLD)->update([
             'setting_parameter' => $request->validated('dead_air_threshold_ms'),
         ]);
+
+        if ($request->has('comm_event_padding_ms')) {
+            $settings->get(TeamSettings::SETTING_COMM_EVENT_PADDING)->update([
+                'setting_parameter' => $request->validated('comm_event_padding_ms'),
+            ]);
+        }
 
         return $this->success('Team settings updated.', [
             'settings' => new TeamSettingsResource($settings),

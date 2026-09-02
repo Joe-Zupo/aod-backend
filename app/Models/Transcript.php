@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Jobs\AdvanceSessionAfterProcessing;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Str;
 
 /**
  * One AssemblyAI transcription of one stored AOD file. Its status is the fine
@@ -35,6 +37,7 @@ class Transcript extends Model
         'language_code',
         'confidence',
         'audio_duration_ms',
+        'comm_events_detected',
         'error',
         'raw_response',
         'poll_count',
@@ -43,6 +46,7 @@ class Transcript extends Model
     protected $casts = [
         'confidence' => 'float',
         'audio_duration_ms' => 'integer',
+        'comm_events_detected' => 'boolean',
         'poll_count' => 'integer',
         'raw_response' => 'array',
     ];
@@ -60,5 +64,37 @@ class Transcript extends Model
     public function sentences(): HasMany
     {
         return $this->hasMany(TranscriptSentence::class)->orderBy('position');
+    }
+
+    public function commEvents(): HasMany
+    {
+        return $this->hasMany(CommEvent::class)->orderBy('start_ms');
+    }
+
+    /**
+     * The Session this transcript belongs to, reached through its AOD record's
+     * participant. Null only if that chain has been broken.
+     */
+    public function session(): ?Session
+    {
+        return $this->aodRecord?->sessionParticipant?->session;
+    }
+
+    /**
+     * Move this transcript to `failed` with a reason and nudge the session
+     * toward `timeline_ready`: a permanently failed mic still counts as done,
+     * so the fan-in must re-check when one gives up (see
+     * docs/adr/0006-communication-events.md).
+     */
+    public function markFailed(string $error): void
+    {
+        $this->update([
+            'status' => self::STATUS_FAILED,
+            'error' => Str::limit($error, 255, ''),
+        ]);
+
+        if ($session = $this->session()) {
+            AdvanceSessionAfterProcessing::dispatch($session);
+        }
     }
 }

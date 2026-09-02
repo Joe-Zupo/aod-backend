@@ -10,7 +10,6 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -69,9 +68,6 @@ class SubmitTranscription implements ShouldQueue
 
     public function failed(Throwable $e): void
     {
-        $this->transcript->fresh()?->update([
-            'status' => Transcript::STATUS_FAILED,
-            'error' => Str::limit($e->getMessage(), 255, ''),
-        ]);
+        $this->transcript->fresh()?->markFailed($e->getMessage());
     }
 }

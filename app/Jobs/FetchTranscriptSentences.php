@@ -13,7 +13,6 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -102,6 +101,8 @@ class FetchTranscriptSentences implements ShouldQueue
         });
 
         $this->warnOnWordDivergence($transcript, $sentences);
+
+        DetectCommEvents::dispatch($transcript);
     }
 
     /**
@@ -140,9 +141,6 @@ class FetchTranscriptSentences implements ShouldQueue
 
     public function failed(Throwable $e): void
     {
-        $this->transcript->fresh()?->update([
-            'status' => Transcript::STATUS_FAILED,
-            'error' => Str::limit('Sentence fetch failed: '.$e->getMessage(), 255, ''),
-        ]);
+        $this->transcript->fresh()?->markFailed('Sentence fetch failed: '.$e->getMessage());
     }
 }

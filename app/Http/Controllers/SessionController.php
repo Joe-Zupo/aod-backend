@@ -6,11 +6,13 @@ use App\Exceptions\SessionTransitionException;
 use App\Http\Requests\CompleteSessionRequest;
 use App\Http\Requests\StoreSessionRequest;
 use App\Http\Resources\SessionResource;
+use App\Models\CommEvent;
 use App\Models\Session;
 use App\Models\Team;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
 
 class SessionController extends Controller
@@ -151,6 +153,250 @@ class SessionController extends Controller
             'session_id' => $session->id,
             'tracks' => $tracks,
         ]);
+    }
+
+    /**
+     * Session Timeline
+     *
+     * Return the session, its Timeline, an ordered type-tagged timestamp list
+     * (currently only communication events, with their callouts), and
+     * per-participant transcript / AOD / VOD metadata. Recording metadata only,
+     * no URLs. Restricted to any active member of the session's team. Refused
+     * with 409 while the session is processing, served from timeline_ready
+     * onward.
+     */
+    public function timeline(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('view', $session);
+
+        if ($session->status === Session::STATUS_PROCESSING) {
+            return $this->error('This session is still processing.', 409);
+        }
+
+        $session->load([
+            'timeline',
+            'participants' => fn ($query) => $query->orderBy('id'),
+            'participants.aodRecord.transcript.commEvents.calloutDetections',
+            'participants.vodRecord',
+        ]);
+
+        $timestamps = $session->participants
+            ->flatMap(function ($participant) {
+                $transcript = $participant->aodRecord?->transcript;
+
+                if (! $transcript) {
+                    return [];
+                }
+
+                return $transcript->commEvents->map(fn ($event) => [
+                    'type' => 'communication_event',
+                    'id' => $event->id,
+                    'participant_id' => $participant->id,
+                    'user_id' => $participant->user_id,
+                    'communication_type' => $event->communication_type,
+                    'is_redundant' => $event->is_redundant,
+                    'start_ms' => $event->start_ms,
+                    'end_ms' => $event->end_ms,
+                    'content' => $event->content,
+                    'callouts' => $event->calloutDetections->map(fn ($callout) => [
+                        'keyword' => $callout->keyword,
+                        'normalized_keyword' => $callout->normalized_keyword,
+                        'category' => $callout->category,
+                        'start_ms' => $callout->start_ms,
+                        'end_ms' => $callout->end_ms,
+                        'confidence' => $callout->confidence,
+                    ])->values(),
+                ]);
+            })
+            ->sortBy('start_ms')
+            ->values();
+
+        $participants = $session->participants
+            ->filter(fn ($participant) => $participant->aodRecord !== null)
+            ->map(function ($participant) {
+                $aod = $participant->aodRecord;
+                $vod = $participant->vodRecord;
+                $transcript = $aod->transcript;
+
+                return [
+                    'participant_id' => $participant->id,
+                    'user_id' => $participant->user_id,
+                    'transcript' => $transcript ? [
+                        'id' => $transcript->id,
+                        'status' => $transcript->status,
+                        'language_code' => $transcript->language_code,
+                        'confidence' => $transcript->confidence,
+                        'audio_duration_ms' => $transcript->audio_duration_ms,
+                    ] : null,
+                    'aod' => $this->recordingMeta($aod),
+                    'vod' => $vod ? $this->recordingMeta($vod) : null,
+                ];
+            })
+            ->values();
+
+        return $this->success('Session timeline retrieved.', [
+            'session_id' => $session->id,
+            'status' => $session->status,
+            'timeline' => [
+                'id' => $session->timeline?->id,
+                'created_at' => $session->timeline?->created_at,
+                'duration_ms' => null,
+            ],
+            'timestamps' => $timestamps,
+            'participants' => $participants,
+        ]);
+    }
+
+    /**
+     * Session Timeline Summary
+     *
+     * Return communication frequency, event counts by type (informative /
+     * declarative / compound / redundant) and provisional team-aggregate
+     * silence metrics, at team and per-player level. Restricted to any active
+     * member of the session's team. Refused with 409 while the session is
+     * processing, served from timeline_ready onward.
+     */
+    public function timelineSummary(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('view', $session);
+
+        if ($session->status === Session::STATUS_PROCESSING) {
+            return $this->error('This session is still processing.', 409);
+        }
+
+        $session->load([
+            'participants' => fn ($query) => $query->orderBy('id'),
+            'participants.aodRecord.transcript.commEvents',
+        ]);
+
+        $recording = $session->participants->filter(
+            fn ($participant) => $participant->aodRecord?->transcript !== null,
+        );
+
+        $windowMs = (int) $recording
+            ->map(fn ($participant) => (int) $participant->aodRecord->transcript->audio_duration_ms)
+            ->max();
+
+        $allEvents = $recording->flatMap(fn ($participant) => $participant->aodRecord->transcript->commEvents);
+
+        $participants = $recording->map(function ($participant) use ($windowMs) {
+            $events = $participant->aodRecord->transcript->commEvents;
+
+            return [
+                'participant_id' => $participant->id,
+                'user_id' => $participant->user_id,
+                'frequency_per_min' => $this->frequencyPerMin($events->count(), $windowMs),
+                'counts' => $this->commEventCounts($events),
+            ];
+        })->values();
+
+        [$totalTalkMs, $totalSilenceMs, $longestSilenceMs] = $this->silenceProxy($allEvents, $windowMs);
+
+        return $this->success('Session timeline summary retrieved.', [
+            'session_id' => $session->id,
+            'session_window_ms' => $windowMs,
+            'team' => [
+                'frequency_per_min' => $this->frequencyPerMin($allEvents->count(), $windowMs),
+                'counts' => $this->commEventCounts($allEvents),
+                'total_talk_ms' => $totalTalkMs,
+                'total_silence_ms' => $totalSilenceMs,
+                'longest_silence_ms' => $longestSilenceMs,
+            ],
+            'participants' => $participants,
+        ]);
+    }
+
+    /**
+     * The metadata-only view of one AOD/VOD record.
+     *
+     * @return array<string, mixed>
+     */
+    private function recordingMeta($record): array
+    {
+        return [
+            'id' => $record->id,
+            'original_filename' => $record->original_filename,
+            'mime_type' => $record->mime_type,
+            'size_bytes' => (int) $record->size_bytes,
+        ];
+    }
+
+    /**
+     * Communication-event counts by type plus the redundant and total tallies.
+     *
+     * @param  Collection<int, CommEvent>  $events
+     * @return array<string, int>
+     */
+    private function commEventCounts($events): array
+    {
+        return [
+            'informative' => $events->where('communication_type', CommEvent::TYPE_INFORMATIVE)->count(),
+            'declarative' => $events->where('communication_type', CommEvent::TYPE_DECLARATIVE)->count(),
+            'compound' => $events->where('communication_type', CommEvent::TYPE_COMPOUND)->count(),
+            'redundant' => $events->where('is_redundant', true)->count(),
+            'total' => $events->count(),
+        ];
+    }
+
+    /**
+     * Communication events per minute over the session window, two decimals.
+     */
+    private function frequencyPerMin(int $count, int $windowMs): float
+    {
+        if ($windowMs <= 0) {
+            return 0.0;
+        }
+
+        return round($count / ($windowMs / 60000), 2);
+    }
+
+    /**
+     * Provisional team-aggregate talk / silence proxy from communication-event
+     * spans: any player talking counts as not silent. Returns
+     * [total_talk_ms, total_silence_ms, longest_silence_ms]. Marked provisional
+     * pending the real Dead Air milestone (see
+     * docs/adr/0006-communication-events.md).
+     *
+     * @param  Collection<int, CommEvent>  $events
+     * @return array{0: int, 1: int, 2: int}
+     */
+    private function silenceProxy($events, int $windowMs): array
+    {
+        if ($windowMs <= 0) {
+            return [0, 0, 0];
+        }
+
+        $intervals = $events
+            ->map(fn ($event) => [
+                max(0, (int) $event->start_ms),
+                min($windowMs, (int) $event->end_ms),
+            ])
+            ->filter(fn (array $span) => $span[1] > $span[0])
+            ->sortBy(0)
+            ->values();
+
+        $merged = [];
+        foreach ($intervals as [$start, $end]) {
+            if ($merged !== [] && $start <= $merged[count($merged) - 1][1]) {
+                $merged[count($merged) - 1][1] = max($merged[count($merged) - 1][1], $end);
+
+                continue;
+            }
+
+            $merged[] = [$start, $end];
+        }
+
+        $totalTalk = array_sum(array_map(fn (array $span) => $span[1] - $span[0], $merged));
+
+        $cursor = 0;
+        $longestSilence = 0;
+        foreach ($merged as [$start, $end]) {
+            $longestSilence = max($longestSilence, $start - $cursor);
+            $cursor = max($cursor, $end);
+        }
+        $longestSilence = max($longestSilence, $windowMs - $cursor);
+
+        return [$totalTalk, $windowMs - $totalTalk, $longestSilence];
     }
 
     /**

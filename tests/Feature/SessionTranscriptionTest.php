@@ -305,30 +305,33 @@ class SessionTranscriptionTest extends TestCase
 
     public function test_the_index_reports_transcription_progress_for_a_processing_session(): void
     {
-        Http::fake([
-            '*/v2/upload' => Http::response(['upload_url' => 'https://cdn.assemblyai.com/u/i']),
-            '*/v2/transcript' => Http::sequence()
-                ->push(['id' => 'txn_a', 'status' => 'queued'])
-                ->push(['id' => 'txn_b', 'status' => 'queued']),
-            '*/v2/transcript/txn_a' => Http::response([
-                'id' => 'txn_a', 'status' => 'completed', 'language_code' => 'en', 'text' => 'x', 'words' => [],
-            ]),
-            '*/v2/transcript/txn_a/sentences' => Http::response([
-                'id' => 'txn_a', 'sentences' => [],
-            ]),
-            '*/v2/transcript/txn_b' => Http::response([
-                'id' => 'txn_b', 'status' => 'error', 'error' => 'bad audio',
-            ]),
-        ]);
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $session = $this->createSession($team, $coach, Session::STATUS_PROCESSING);
+        $this->addParticipant($session, $coach, 'main_coach');
 
-        [$team, $coach, $session, $players] = $this->recordingSession(2);
+        // One transcript done, one still running: the session stays `processing`
+        // and the index surfaces the aggregate.
+        $done = $this->addParticipant(
+            $session,
+            $this->makeAndAttachMember($team, 'player', 'Player', $coach),
+            'player',
+            SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+        );
+        $running = $this->addParticipant(
+            $session,
+            $this->makeAndAttachMember($team, 'player', 'Player', $coach),
+            'player',
+            SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+        );
 
-        $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
-                $this->pair($players[0]),
-                $this->pair($players[1]),
-            ]])
-            ->assertOk();
+        Transcript::factory()
+            ->for(AodRecord::factory()->for($done))
+            ->completed()
+            ->create(['comm_events_detected' => true]);
+        Transcript::factory()
+            ->for(AodRecord::factory()->for($running))
+            ->processing('txn_running')
+            ->create();
 
         $this->actingAs($coach, 'sanctum')
             ->getJson("/api/teams/{$team->id}/sessions")
@@ -336,7 +339,7 @@ class SessionTranscriptionTest extends TestCase
             ->assertJsonPath('data.past_sessions.0.id', $session->id)
             ->assertJsonPath('data.past_sessions.0.transcription.total', 2)
             ->assertJsonPath('data.past_sessions.0.transcription.completed', 1)
-            ->assertJsonPath('data.past_sessions.0.transcription.failed', 1);
+            ->assertJsonPath('data.past_sessions.0.transcription.failed', 0);
     }
 
     public function test_a_queuing_session_carries_no_transcription_block(): void

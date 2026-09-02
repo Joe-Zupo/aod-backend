@@ -45,6 +45,15 @@ class Session extends Model
 
     public const STATUS_PROCESSING = 'processing';
 
+    /**
+     * The analysis pipeline has produced captions and communication-event
+     * timestamps under the zero-offset assumption. The read surface opens here:
+     * `GET /sessions/{id}` succeeds again and the timeline, timeline-summary and
+     * captions endpoints serve the session (see
+     * docs/adr/0006-communication-events.md).
+     */
+    public const STATUS_TIMELINE_READY = 'timeline_ready';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     /**
