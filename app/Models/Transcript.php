@@ -56,4 +56,9 @@ class Transcript extends Model
     {
         return $this->hasMany(TranscriptWord::class);
     }
+
+    public function sentences(): HasMany
+    {
+        return $this->hasMany(TranscriptSentence::class)->orderBy('position');
+    }
 }

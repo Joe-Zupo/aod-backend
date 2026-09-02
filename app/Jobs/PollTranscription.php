@@ -3,21 +3,21 @@
 namespace App\Jobs;
 
 use App\Models\Transcript;
-use App\Models\TranscriptWord;
 use App\Services\AssemblyAiClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Throwable;
 
 /**
  * Polls one submitted transcript until AssemblyAI reports it done, then stores
- * the words and flips the row to completed. Re-dispatches itself with a delay
- * while the provider is still working, bounded by services.assemblyai.max_polls.
+ * the transcript-level fields, flips the row to completed, and dispatches
+ * FetchTranscriptSentences to ingest the sentence and word detail. Re-dispatches
+ * itself with a delay while the provider is still working, bounded by
+ * services.assemblyai.max_polls.
  */
 class PollTranscription implements ShouldQueue
 {
@@ -94,37 +94,24 @@ class PollTranscription implements ShouldQueue
             return;
         }
 
-        DB::transaction(function () use ($transcript, $remote) {
-            $transcript->words()->delete();
+        // Word-level rows are no longer written here. They are ingested from the
+        // sentences endpoint by FetchTranscriptSentences, so that words and
+        // sentences are one coherent structure (see
+        // docs/adr/0005-sentence-indexed-transcript-storage.md). This branch
+        // stores the transcript-level fields and hands off.
+        $transcript->update([
+            'status' => Transcript::STATUS_COMPLETED,
+            'text' => $remote['text'] ?? null,
+            'language_code' => $remote['language_code'] ?? null,
+            'confidence' => isset($remote['confidence']) ? (float) $remote['confidence'] : null,
+            'audio_duration_ms' => isset($remote['audio_duration'])
+                ? (int) round(((float) $remote['audio_duration']) * 1000)
+                : null,
+            'raw_response' => $remote,
+            'error' => null,
+        ]);
 
-            $rows = [];
-            foreach (array_values($remote['words'] ?? []) as $position => $word) {
-                $rows[] = [
-                    'transcript_id' => $transcript->id,
-                    'position' => $position,
-                    'word' => $word['text'],
-                    'start_ms' => (int) $word['start'],
-                    'end_ms' => (int) $word['end'],
-                    'confidence' => (float) ($word['confidence'] ?? 0),
-                ];
-            }
-
-            if ($rows !== []) {
-                TranscriptWord::insert($rows);
-            }
-
-            $transcript->update([
-                'status' => Transcript::STATUS_COMPLETED,
-                'text' => $remote['text'] ?? null,
-                'language_code' => $remote['language_code'] ?? null,
-                'confidence' => isset($remote['confidence']) ? (float) $remote['confidence'] : null,
-                'audio_duration_ms' => isset($remote['audio_duration'])
-                    ? (int) round(((float) $remote['audio_duration']) * 1000)
-                    : null,
-                'raw_response' => $remote,
-                'error' => null,
-            ]);
-        });
+        FetchTranscriptSentences::dispatch($transcript);
     }
 
     public function failed(Throwable $e): void

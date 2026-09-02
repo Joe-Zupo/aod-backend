@@ -145,7 +145,7 @@ class SessionTranscriptionTest extends TestCase
         Queue::assertPushed(PollTranscription::class, 1);
     }
 
-    public function test_a_completed_poll_stores_the_words_and_marks_the_transcript_completed(): void
+    public function test_a_completed_poll_stores_the_transcript_fields_then_fetches_sentences_and_words(): void
     {
         Http::fake([
             '*/v2/upload' => Http::response(['upload_url' => 'https://cdn.assemblyai.com/u/1']),
@@ -153,13 +153,42 @@ class SessionTranscriptionTest extends TestCase
             '*/v2/transcript/txn_1' => Http::response([
                 'id' => 'txn_1',
                 'status' => 'completed',
-                'text' => 'two mid',
+                'text' => 'two mid. go a.',
                 'language_code' => 'en',
                 'confidence' => 0.9,
                 'audio_duration' => 12,
                 'words' => [
                     ['text' => 'two', 'start' => 100, 'end' => 300, 'confidence' => 0.98],
                     ['text' => 'mid', 'start' => 320, 'end' => 500, 'confidence' => 0.91],
+                    ['text' => 'go', 'start' => 900, 'end' => 1000, 'confidence' => 0.8],
+                    ['text' => 'a', 'start' => 1010, 'end' => 1100, 'confidence' => 0.7],
+                ],
+            ]),
+            '*/v2/transcript/txn_1/sentences' => Http::response([
+                'id' => 'txn_1',
+                'confidence' => 0.9,
+                'audio_duration' => 12,
+                'sentences' => [
+                    [
+                        'text' => 'two mid.',
+                        'start' => 100,
+                        'end' => 500,
+                        'confidence' => 0.945,
+                        'words' => [
+                            ['text' => 'two', 'start' => 100, 'end' => 300, 'confidence' => 0.98],
+                            ['text' => 'mid', 'start' => 320, 'end' => 500, 'confidence' => 0.91],
+                        ],
+                    ],
+                    [
+                        'text' => 'go a.',
+                        'start' => 900,
+                        'end' => 1100,
+                        'confidence' => 0.75,
+                        'words' => [
+                            ['text' => 'go', 'start' => 900, 'end' => 1000, 'confidence' => 0.8],
+                            ['text' => 'a', 'start' => 1010, 'end' => 1100, 'confidence' => 0.7],
+                        ],
+                    ],
                 ],
             ]),
         ]);
@@ -172,20 +201,38 @@ class SessionTranscriptionTest extends TestCase
 
         $transcript = Transcript::sole();
         $this->assertSame(Transcript::STATUS_COMPLETED, $transcript->status);
-        $this->assertSame('two mid', $transcript->text);
+        $this->assertSame('two mid. go a.', $transcript->text);
         $this->assertSame('en', $transcript->language_code);
         $this->assertSame(12000, $transcript->audio_duration_ms);
         $this->assertEqualsWithDelta(0.9, $transcript->confidence, 0.0001);
         $this->assertIsArray($transcript->raw_response);
 
-        $this->assertSame(2, $transcript->words()->count());
+        $this->assertSame(2, $transcript->sentences()->count());
+        $this->assertDatabaseHas('transcript_sentences', [
+            'transcript_id' => $transcript->id, 'position' => 0, 'text' => 'two mid.',
+            'start_ms' => 100, 'end_ms' => 500,
+        ]);
+
+        $firstSentence = $transcript->sentences()->where('position', 0)->sole();
+
+        $this->assertSame(4, $transcript->words()->count());
         $this->assertDatabaseHas('transcript_words', [
-            'transcript_id' => $transcript->id, 'position' => 0, 'word' => 'two',
+            'transcript_id' => $transcript->id,
+            'transcript_sentence_id' => $firstSentence->id,
+            'position' => 0, 'sentence_position' => 0, 'word' => 'two',
             'start_ms' => 100, 'end_ms' => 300,
         ]);
         $this->assertDatabaseHas('transcript_words', [
-            'transcript_id' => $transcript->id, 'position' => 1, 'word' => 'mid',
-            'start_ms' => 320, 'end_ms' => 500,
+            'transcript_id' => $transcript->id,
+            'transcript_sentence_id' => $firstSentence->id,
+            'position' => 1, 'sentence_position' => 1, 'word' => 'mid',
+        ]);
+
+        $secondSentence = $transcript->sentences()->where('position', 1)->sole();
+        $this->assertDatabaseHas('transcript_words', [
+            'transcript_id' => $transcript->id,
+            'transcript_sentence_id' => $secondSentence->id,
+            'position' => 2, 'sentence_position' => 0, 'word' => 'go',
         ]);
     }
 
@@ -203,6 +250,18 @@ class SessionTranscriptionTest extends TestCase
                     'language_code' => 'en',
                     'words' => [['text' => 'go', 'start' => 10, 'end' => 90, 'confidence' => 0.9]],
                 ]),
+            '*/v2/transcript/txn_3/sentences' => Http::response([
+                'id' => 'txn_3',
+                'sentences' => [
+                    [
+                        'text' => 'go',
+                        'start' => 10,
+                        'end' => 90,
+                        'confidence' => 0.9,
+                        'words' => [['text' => 'go', 'start' => 10, 'end' => 90, 'confidence' => 0.9]],
+                    ],
+                ],
+            ]),
         ]);
 
         [, $coach, $session, $players] = $this->recordingSession(1);
@@ -212,8 +271,8 @@ class SessionTranscriptionTest extends TestCase
             ->assertOk();
 
         $this->assertSame(Transcript::STATUS_COMPLETED, Transcript::sole()->status);
-        // upload, submit, poll (processing), poll (completed)
-        Http::assertSentCount(4);
+        // upload, submit, poll (processing), poll (completed), sentences
+        Http::assertSentCount(5);
     }
 
     public function test_show_is_blocked_with_409_while_the_session_is_processing(): void
@@ -253,6 +312,9 @@ class SessionTranscriptionTest extends TestCase
                 ->push(['id' => 'txn_b', 'status' => 'queued']),
             '*/v2/transcript/txn_a' => Http::response([
                 'id' => 'txn_a', 'status' => 'completed', 'language_code' => 'en', 'text' => 'x', 'words' => [],
+            ]),
+            '*/v2/transcript/txn_a/sentences' => Http::response([
+                'id' => 'txn_a', 'sentences' => [],
             ]),
             '*/v2/transcript/txn_b' => Http::response([
                 'id' => 'txn_b', 'status' => 'error', 'error' => 'bad audio',

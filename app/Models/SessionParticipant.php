@@ -9,6 +9,7 @@ use App\Support\Broadcasting;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SessionParticipant extends Model
 {
@@ -60,6 +61,16 @@ class SessionParticipant extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function aodRecord(): HasOne
+    {
+        return $this->hasOne(AodRecord::class);
+    }
+
+    public function vodRecord(): HasOne
+    {
+        return $this->hasOne(VodRecord::class);
     }
 
     /**

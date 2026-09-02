@@ -95,6 +95,65 @@ class SessionController extends Controller
     }
 
     /**
+     * Session Captions
+     *
+     * Return one caption track per player who recorded audio: the transcript's
+     * status and, when it completed, its sentences with nested words and
+     * millisecond spans. A `failed` or empty transcript still yields a track
+     * with its status and no sentences. Restricted to any active member of the
+     * session's team. Refused with 409 while the session is processing, served
+     * from timeline_ready onward.
+     */
+    public function captions(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('view', $session);
+
+        if ($session->status === Session::STATUS_PROCESSING) {
+            return $this->error('This session is still processing.', 409);
+        }
+
+        $session->load([
+            'participants' => fn ($query) => $query->orderBy('id'),
+            'participants.aodRecord.transcript.sentences.words',
+        ]);
+
+        $tracks = $session->participants
+            ->filter(fn ($participant) => $participant->aodRecord && $participant->aodRecord->transcript)
+            ->map(function ($participant) {
+                $transcript = $participant->aodRecord->transcript;
+
+                return [
+                    'participant_id' => $participant->id,
+                    'user_id' => $participant->user_id,
+                    'status' => $transcript->status,
+                    'language_code' => $transcript->language_code,
+                    'confidence' => $transcript->confidence,
+                    'audio_duration_ms' => $transcript->audio_duration_ms,
+                    'sentences' => $transcript->sentences->map(fn ($sentence) => [
+                        'position' => $sentence->position,
+                        'text' => $sentence->text,
+                        'start_ms' => $sentence->start_ms,
+                        'end_ms' => $sentence->end_ms,
+                        'confidence' => $sentence->confidence,
+                        'words' => $sentence->words->map(fn ($word) => [
+                            'position' => $word->sentence_position,
+                            'text' => $word->word,
+                            'start_ms' => $word->start_ms,
+                            'end_ms' => $word->end_ms,
+                            'confidence' => $word->confidence,
+                        ])->values(),
+                    ])->values(),
+                ];
+            })
+            ->values();
+
+        return $this->success('Session captions retrieved.', [
+            'session_id' => $session->id,
+            'tracks' => $tracks,
+        ]);
+    }
+
+    /**
      * Join Session
      *
      * Add the authenticated active team member as a Session Participant while

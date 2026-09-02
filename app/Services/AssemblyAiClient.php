@@ -75,6 +75,22 @@ class AssemblyAiClient
             ->json();
     }
 
+    /**
+     * Read one transcript's sentence segmentation back by its provider id. Top
+     * level is `{ id, confidence, audio_duration, sentences: [...] }`, each
+     * sentence `{ text, start, end, confidence, words: [...] }`. The always-null
+     * `speaker` / `channel` fields are ignored (`speaker_labels` is off).
+     *
+     * @return array<string, mixed>
+     */
+    public function getSentences(string $providerTranscriptId): array
+    {
+        return $this->request()
+            ->get('/v2/transcript/'.$providerTranscriptId.'/sentences')
+            ->throw()
+            ->json();
+    }
+
     private function request(): PendingRequest
     {
         return Http::baseUrl($this->baseUrl)
