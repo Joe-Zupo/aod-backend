@@ -60,8 +60,10 @@ class PollTranscription implements ShouldQueue
         $status = $remote['status'] ?? null;
 
         if ($status === 'error') {
-            $transcript->update(['raw_response' => $remote]);
-            $transcript->markFailed($remote['error'] ?? 'The provider reported an error.');
+            $transcript->markFailed(
+                $remote['error'] ?? 'The provider reported an error.',
+                ['raw_response' => $remote],
+            );
 
             return;
         }
@@ -77,11 +79,10 @@ class PollTranscription implements ShouldQueue
         $accepted = (array) config('services.assemblyai.accepted_languages');
 
         if ($language !== null && ! in_array($language, $accepted, true)) {
-            $transcript->update([
-                'language_code' => $language,
-                'raw_response' => $remote,
-            ]);
-            $transcript->markFailed("Detected language '{$language}' is not supported.");
+            $transcript->markFailed(
+                "Detected language '{$language}' is not supported.",
+                ['language_code' => $language, 'raw_response' => $remote],
+            );
 
             return;
         }
@@ -108,6 +109,15 @@ class PollTranscription implements ShouldQueue
 
     public function failed(Throwable $e): void
     {
-        $this->transcript->fresh()?->markFailed($e->getMessage());
+        $transcript = $this->transcript->fresh();
+
+        // If the poll itself already succeeded (transcript completed), a later
+        // failure — e.g. an inline FetchTranscriptSentences throw on the sync
+        // queue — is not this job's to record. Don't clobber a good result.
+        if (! $transcript || $transcript->status === Transcript::STATUS_COMPLETED) {
+            return;
+        }
+
+        $transcript->markFailed($e->getMessage());
     }
 }

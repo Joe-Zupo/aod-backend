@@ -81,16 +81,19 @@ class Transcript extends Model
     }
 
     /**
-     * Move this transcript to `failed` with a reason and nudge the session
-     * toward `timeline_ready`: a permanently failed mic still counts as done,
-     * so the fan-in must re-check when one gives up (see
-     * docs/adr/0006-communication-events.md).
+     * Move this transcript to `failed` with a reason (plus any extra columns to
+     * set in the same write) and nudge the session toward `timeline_ready`: a
+     * permanently failed mic still counts as done, so the fan-in must re-check
+     * when one gives up (see docs/adr/0006-communication-events.md).
+     *
+     * @param  array<string, mixed>  $extra
      */
-    public function markFailed(string $error): void
+    public function markFailed(string $error, array $extra = []): void
     {
         $this->update([
             'status' => self::STATUS_FAILED,
             'error' => Str::limit($error, 255, ''),
+            ...$extra,
         ]);
 
         if ($session = $this->session()) {

@@ -141,6 +141,19 @@ class FetchTranscriptSentences implements ShouldQueue
 
     public function failed(Throwable $e): void
     {
-        $this->transcript->fresh()?->markFailed('Sentence fetch failed: '.$e->getMessage());
+        $transcript = $this->transcript->fresh();
+
+        if (! $transcript) {
+            return;
+        }
+
+        // If sentences are already stored, the fetch itself succeeded and a
+        // later failure — e.g. an inline DetectCommEvents throw on the sync
+        // queue — belongs to that job, not this one. Don't fail a good ingest.
+        if ($transcript->sentences()->exists()) {
+            return;
+        }
+
+        $transcript->markFailed('Sentence fetch failed: '.$e->getMessage());
     }
 }

@@ -87,8 +87,8 @@ class SessionController extends Controller
     {
         $this->authorize('view', $session);
 
-        if ($session->status === Session::STATUS_PROCESSING) {
-            return $this->error('This session is still processing.', 409);
+        if ($response = $this->refuseWhileProcessing($session)) {
+            return $response;
         }
 
         return $this->success('Session retrieved.', [
@@ -110,8 +110,8 @@ class SessionController extends Controller
     {
         $this->authorize('view', $session);
 
-        if ($session->status === Session::STATUS_PROCESSING) {
-            return $this->error('This session is still processing.', 409);
+        if ($response = $this->refuseWhileProcessing($session)) {
+            return $response;
         }
 
         $session->load([
@@ -169,8 +169,8 @@ class SessionController extends Controller
     {
         $this->authorize('view', $session);
 
-        if ($session->status === Session::STATUS_PROCESSING) {
-            return $this->error('This session is still processing.', 409);
+        if ($response = $this->refuseWhileProcessing($session)) {
+            return $response;
         }
 
         $session->load([
@@ -260,8 +260,8 @@ class SessionController extends Controller
     {
         $this->authorize('view', $session);
 
-        if ($session->status === Session::STATUS_PROCESSING) {
-            return $this->error('This session is still processing.', 409);
+        if ($response = $this->refuseWhileProcessing($session)) {
+            return $response;
         }
 
         $session->load([
@@ -525,5 +525,20 @@ class SessionController extends Controller
         return $this->success('Session completed.', [
             'session' => new SessionResource($session->load('activeParticipants.user')),
         ]);
+    }
+
+    /**
+     * The 409 the read endpoints share: while a session is `processing` the
+     * analysis pipeline is mid-run and there is no coherent view to return.
+     * Returns the response to send, or null when the session is readable.
+     * `timeline_ready` (and later read states) fall through.
+     */
+    private function refuseWhileProcessing(Session $session): ?JsonResponse
+    {
+        if ($session->status === Session::STATUS_PROCESSING) {
+            return $this->error('This session is still processing.', 409);
+        }
+
+        return null;
     }
 }

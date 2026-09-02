@@ -3,6 +3,9 @@
 namespace Tests\Feature;
 
 use App\Jobs\AdvanceSessionAfterProcessing;
+use App\Jobs\DetectCommEvents;
+use App\Jobs\FetchTranscriptSentences;
+use App\Jobs\PollTranscription;
 use App\Models\AodRecord;
 use App\Models\CalloutDetection;
 use App\Models\CommEvent;
@@ -253,6 +256,51 @@ class SessionCommEventsTest extends TestCase
         $this->assertSame(1, Transcript::where('status', Transcript::STATUS_COMPLETED)->count());
         $this->assertSame(1, Transcript::where('status', Transcript::STATUS_FAILED)->count());
         $this->assertSame(1, CommEvent::count());
+    }
+
+    public function test_detect_comm_events_failed_handler_degrades_an_undetected_transcript_and_advances(): void
+    {
+        [, , $session, , $transcript] = $this->timelineReadySession();
+        $session->update(['status' => Session::STATUS_PROCESSING]);
+        $transcript->update(['comm_events_detected' => false]);
+
+        (new DetectCommEvents($transcript))->failed(new \RuntimeException('pcre blew up'));
+
+        $transcript->refresh();
+        $this->assertSame(Transcript::STATUS_FAILED, $transcript->status);
+        $this->assertStringContainsString('detection failed', strtolower($transcript->error));
+        // The only transcript is now terminal, so the fan-in advances the session.
+        $this->assertSame(Session::STATUS_TIMELINE_READY, $session->fresh()->status);
+    }
+
+    public function test_detect_comm_events_failed_handler_leaves_an_already_detected_transcript_alone(): void
+    {
+        [, , , , $transcript] = $this->timelineReadySession();
+
+        (new DetectCommEvents($transcript))->failed(new \RuntimeException('too late'));
+
+        $this->assertSame(Transcript::STATUS_COMPLETED, $transcript->fresh()->status);
+    }
+
+    public function test_sentence_fetch_failed_handler_does_not_clobber_a_transcript_whose_sentences_exist(): void
+    {
+        [, , , , $transcript] = $this->timelineReadySession();
+        $transcript->sentences()->create([
+            'position' => 0, 'text' => 'here.', 'start_ms' => 0, 'end_ms' => 500, 'confidence' => 0.9,
+        ]);
+
+        (new FetchTranscriptSentences($transcript))->failed(new \RuntimeException('boom'));
+
+        $this->assertSame(Transcript::STATUS_COMPLETED, $transcript->fresh()->status);
+    }
+
+    public function test_poll_failed_handler_does_not_clobber_an_already_completed_transcript(): void
+    {
+        [, , , , $transcript] = $this->timelineReadySession();
+
+        (new PollTranscription($transcript))->failed(new \RuntimeException('inline handoff threw'));
+
+        $this->assertSame(Transcript::STATUS_COMPLETED, $transcript->fresh()->status);
     }
 
     public function test_a_processing_session_does_not_advance_until_every_transcript_is_terminal(): void

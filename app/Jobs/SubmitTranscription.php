@@ -68,6 +68,15 @@ class SubmitTranscription implements ShouldQueue
 
     public function failed(Throwable $e): void
     {
-        $this->transcript->fresh()?->markFailed($e->getMessage());
+        $transcript = $this->transcript->fresh();
+
+        // Submission already handed off (transcript past `queued`)? A later
+        // inline failure on the sync queue belongs to a downstream job, which
+        // has its own handler. Don't clobber a submission that went through.
+        if (! $transcript || $transcript->status !== Transcript::STATUS_QUEUED) {
+            return;
+        }
+
+        $transcript->markFailed($e->getMessage());
     }
 }

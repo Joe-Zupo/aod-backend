@@ -17,6 +17,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * Detects Communication Events for one completed transcript: matches the team's
@@ -35,6 +36,19 @@ class DetectCommEvents implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public function __construct(public Transcript $transcript) {}
+
+    public function tries(): int
+    {
+        return (int) config('services.assemblyai.job_tries');
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function backoff(): array
+    {
+        return [10, 30, 60];
+    }
 
     public function handle(): void
     {
@@ -125,6 +139,24 @@ class DetectCommEvents implements ShouldQueue
         });
 
         AdvanceSessionAfterProcessing::dispatch($session);
+    }
+
+    /**
+     * A permanent detection failure must not strand the session in `processing`:
+     * a completed transcript whose events never get detected keeps the fan-in
+     * from ever passing. Degrade that mic to `failed` so the session still
+     * advances (see docs/adr/0006-communication-events.md). If detection already
+     * committed, a later inline failure is not ours to record.
+     */
+    public function failed(Throwable $e): void
+    {
+        $transcript = $this->transcript->fresh();
+
+        if (! $transcript || $transcript->comm_events_detected) {
+            return;
+        }
+
+        $transcript->markFailed('Communication-event detection failed: '.$e->getMessage());
     }
 
     /**

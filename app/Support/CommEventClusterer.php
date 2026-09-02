@@ -30,18 +30,22 @@ class CommEventClusterer
 
         $clusters = [];
         $current = [$hits[0]];
-        $previousEnd = (int) $hits[0]['end_ms'];
+        // Running max of ends seen in the current cluster, not just the previous
+        // hit's end: ASR word spans can be out of end-order, and the gap that
+        // matters is to the last point anyone was still talking.
+        $clusterEnd = (int) $hits[0]['end_ms'];
 
         foreach (array_slice($hits, 1) as $hit) {
-            $gap = (int) $hit['start_ms'] - $previousEnd;
+            $gap = (int) $hit['start_ms'] - $clusterEnd;
 
             if ($gap > $paddingMs) {
                 $clusters[] = self::summarise($current);
                 $current = [];
+                $clusterEnd = (int) $hit['end_ms'];
             }
 
             $current[] = $hit;
-            $previousEnd = (int) $hit['end_ms'];
+            $clusterEnd = max($clusterEnd, (int) $hit['end_ms']);
         }
 
         $clusters[] = self::summarise($current);
@@ -66,9 +70,11 @@ class CommEventClusterer
         };
 
         return [
-            // Span is the first hit's start to the last hit's end, in hit order.
-            'start_ms' => (int) $hits[0]['start_ms'],
-            'end_ms' => (int) $hits[array_key_last($hits)]['end_ms'],
+            // Span is the earliest hit start to the latest hit end. Max, not the
+            // last hit's end: a short trailing hit must not truncate the span
+            // (which would drop words from the event's content text).
+            'start_ms' => (int) min(array_column($hits, 'start_ms')),
+            'end_ms' => (int) max(array_column($hits, 'end_ms')),
             'communication_type' => $type,
             'is_redundant' => self::isRedundant($hits, $categories),
             'hits' => $hits,

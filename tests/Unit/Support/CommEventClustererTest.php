@@ -107,6 +107,35 @@ class CommEventClustererTest extends TestCase
         $this->assertTrue($clusters[0]['is_redundant']);
     }
 
+    public function test_event_span_uses_the_earliest_start_and_latest_end_across_hits(): void
+    {
+        // Second hit (by start) ends latest; a short trailing hit must not
+        // truncate the span.
+        $clusters = CommEventClusterer::cluster([
+            $this->hit(1000, 1200, 'informative', 'here'),
+            $this->hit(1300, 5000, 'declarative', 'planting'),
+            $this->hit(1400, 1600, 'informative', 'there'),
+        ], 2000);
+
+        $this->assertCount(1, $clusters);
+        $this->assertSame(1000, $clusters[0]['start_ms']);
+        $this->assertSame(5000, $clusters[0]['end_ms']);
+    }
+
+    public function test_a_long_early_hit_keeps_a_later_hit_in_the_same_cluster(): void
+    {
+        // Gap is measured to the running cluster end (5000), not the previous
+        // hit's end (1600), so the third hit stays in.
+        $clusters = CommEventClusterer::cluster([
+            $this->hit(1000, 5000, 'informative', 'here'),
+            $this->hit(1400, 1600, 'informative', 'there'),
+            $this->hit(6500, 6700, 'declarative', 'planting'),
+        ], 2000);
+
+        $this->assertCount(1, $clusters);
+        $this->assertSame(6700, $clusters[0]['end_ms']);
+    }
+
     public function test_unordered_hits_are_sorted_before_clustering(): void
     {
         $clusters = CommEventClusterer::cluster([
