@@ -15,6 +15,7 @@ class SessionResource extends JsonResource
             'id' => $this->id,
             'team_id' => $this->team_id,
             'created_by' => $this->created_by,
+            'session_code' => $this->session_code,
             'session_name' => $this->session_name,
             'status' => $this->status,
             'created_at' => $this->created_at,

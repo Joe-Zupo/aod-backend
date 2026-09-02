@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Session;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -26,18 +27,34 @@ class SessionLifecycleTest extends TestCase
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
 
-        $this->actingAs($coach, 'sanctum')
+        $response = $this->actingAs($coach, 'sanctum')
             ->postJson("/api/teams/{$team->id}/sessions", ['session_name' => 'Scrim vs Team B'])
             ->assertCreated()
             ->assertJsonPath('data.session.session_name', 'Scrim vs Team B')
             ->assertJsonPath('data.session.status', 'queuing');
 
+        $id = $response->json('data.session.id');
+        $response->assertJsonPath('data.session.session_code', Session::codeForId($id));
+
         $this->assertDatabaseHas('app_sessions', [
+            'id' => $id,
             'team_id' => $team->id,
             'created_by' => $coach->id,
             'session_name' => 'Scrim vs Team B',
+            'session_code' => Session::codeForId($id),
             'status' => 'queuing',
         ]);
+    }
+
+    public function test_every_session_gets_a_zero_padded_session_code_on_creation(): void
+    {
+        $this->assertSame('SESSION_003', Session::codeForId(3));
+        $this->assertSame('SESSION_048', Session::codeForId(48));
+        $this->assertSame('SESSION_1234', Session::codeForId(1234));
+
+        $session = Session::factory()->create();
+
+        $this->assertSame(Session::codeForId($session->id), $session->fresh()->session_code);
     }
 
     public function test_creating_a_session_does_not_create_its_timeline_yet(): void

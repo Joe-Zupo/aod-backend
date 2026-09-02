@@ -67,12 +67,41 @@ class Session extends Model
      */
     public const NON_TERMINAL_STATUSES = [self::STATUS_QUEUING, self::STATUS_IN_PROGRESS];
 
+    /**
+     * Prefix of every Session's human-facing code. The full code is this plus
+     * the id, zero-padded to at least three digits (SESSION_001, SESSION_048).
+     */
+    public const CODE_PREFIX = 'SESSION_';
+
     protected $fillable = [
         'team_id',
         'created_by',
         'session_name',
+        'session_code',
         'status',
     ];
+
+    /**
+     * The code for a given Session id: CODE_PREFIX plus the id, zero-padded to
+     * at least three digits.
+     */
+    public static function codeForId(int $id): string
+    {
+        return self::CODE_PREFIX.str_pad((string) $id, 3, '0', STR_PAD_LEFT);
+    }
+
+    protected static function booted(): void
+    {
+        // session_code embeds the id, which only exists after insert, so it is
+        // written in a second (quiet) save here rather than in the create()
+        // attributes. Every creation path (createForTeam, factories) runs this.
+        static::created(function (self $session): void {
+            if ($session->session_code === null) {
+                $session->session_code = self::codeForId($session->id);
+                $session->saveQuietly();
+            }
+        });
+    }
 
     public function team(): BelongsTo
     {

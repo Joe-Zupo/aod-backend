@@ -5,7 +5,7 @@ API backend for the Audio-on-Demand (AOD) Communication Analysis framework: espo
 ## Language
 
 **Session**:
-A single recorded game (one scrim or match), from lobby through completion. Scope is deliberately narrow for this prototype: one Session always covers exactly one game, never a multi-game block (e.g. a Bo3 or a night of several scrims).
+A single recorded game (one scrim or match), from lobby through completion. Scope is deliberately narrow for this prototype: one Session always covers exactly one game, never a multi-game block (e.g. a Bo3 or a night of several scrims). Every Session carries a `session_code`, `SESSION_` plus its id zero-padded to at least three digits (`SESSION_048`), assigned on creation and used as its human-facing reference; `session_name` is the free-text title.
 _Avoid_: scrim, match, game (when referring to the system entity)
 
 **Timeline**:
