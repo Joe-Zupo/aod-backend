@@ -194,6 +194,33 @@ class SessionController extends Controller
     }
 
     /**
+     * Re-analyze Session
+     *
+     * Rebuild the session's timeline from its stored recordings using the
+     * team's current keyword and Communication Event Padding settings — for a
+     * coach who re-tuned them after the first analysis. No files are
+     * re-uploaded and transcription is not re-run. Moves the session back to
+     * `processing` and returns 202; it re-opens at `timeline_ready` once
+     * detection finishes. Restricted to any active Coach on the session's team.
+     * Rejected with 422 unless the session already has a ready timeline built
+     * from at least one transcribed recording.
+     */
+    public function reanalyze(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('reanalyze', $session);
+
+        try {
+            $session->reanalyze();
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Session re-analysis started.', [
+            'session' => new SessionResource($session->fresh()->load('activeParticipants.user')),
+        ], 202);
+    }
+
+    /**
      * Join Session
      *
      * Add the authenticated active team member as a Session Participant while

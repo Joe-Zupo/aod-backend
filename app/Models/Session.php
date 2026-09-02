@@ -6,6 +6,7 @@ use App\Events\SessionParticipantJoined;
 use App\Events\SessionParticipantLeft;
 use App\Events\SessionStatusChanged;
 use App\Exceptions\SessionTransitionException;
+use App\Jobs\DetectCommEvents;
 use App\Jobs\SubmitTranscription;
 use App\Support\Broadcasting;
 use Illuminate\Database\Eloquent\Builder;
@@ -369,6 +370,63 @@ class Session extends Model
         // behind.
         foreach ($transcripts as $transcript) {
             SubmitTranscription::dispatch($transcript);
+        }
+    }
+
+    /**
+     * Rebuild this session's timeline from its already-stored recordings using
+     * the team's current settings. The escape hatch for a coach who re-tuned
+     * the team's Team Keywords or Communication Event Padding after the session
+     * was first analysed and wants the timeline to reflect the change; no files
+     * are re-uploaded and transcription is not re-run.
+     *
+     * Moves timeline_ready -> processing, clears the detection flag on every
+     * completed transcript, and re-dispatches detection for each. DetectCommEvents
+     * replaces that transcript's comm_events + callout_detections wholesale, and
+     * once every transcript is done again AdvanceSessionAfterProcessing flips the
+     * session back to timeline_ready — the same fan-in the first analysis used,
+     * so the read endpoints correctly 409 while the rebuild is in flight.
+     *
+     * Scope today is communication events. When game-event detection lands it is
+     * dispatched from here too, so "re-analyze" always means the whole timeline.
+     *
+     * @throws SessionTransitionException when the session has no ready timeline
+     *                                    to rebuild, or no transcribed recording
+     */
+    public function reanalyze(): void
+    {
+        $transcripts = DB::transaction(function () {
+            $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
+
+            if ($status !== self::STATUS_TIMELINE_READY) {
+                throw new SessionTransitionException('Only a session with a ready timeline can be re-analyzed.');
+            }
+
+            $completed = $this->transcriptsQuery()
+                ->where('status', Transcript::STATUS_COMPLETED)
+                ->lockForUpdate()
+                ->get();
+
+            if ($completed->isEmpty()) {
+                throw new SessionTransitionException('This session has no transcribed recording to re-analyze.');
+            }
+
+            // Clear the flag the fan-in waits on, in the same write as the
+            // status move, so no AdvanceSessionAfterProcessing run can see a
+            // processing session with every transcript still marked done.
+            Transcript::whereKey($completed->modelKeys())->update(['comm_events_detected' => false]);
+
+            $this->update(['status' => self::STATUS_PROCESSING]);
+
+            Broadcasting::safely(new SessionStatusChanged($this));
+
+            return $completed;
+        });
+
+        // Dispatched only after commit, same as complete(): a worker must never
+        // pick up a transcript a rolled-back re-analysis left flagged.
+        foreach ($transcripts as $transcript) {
+            DetectCommEvents::dispatch($transcript);
         }
     }
 

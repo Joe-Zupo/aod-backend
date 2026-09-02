@@ -83,4 +83,15 @@ class SessionPolicy
     {
         return $this->isActiveCoach($user, $session->team);
     }
+
+    /**
+     * Re-running a session's timeline analysis is coaching work — normally done
+     * after the coach has re-tuned the team's keywords or Communication Event
+     * Padding — so any active Coach, main or assistant, on the session's team
+     * may trigger it.
+     */
+    public function reanalyze(User $user, Session $session): Response
+    {
+        return $this->isActiveCoach($user, $session->team);
+    }
 }
