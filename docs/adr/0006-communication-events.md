@@ -1,5 +1,10 @@
 # 6. Communication events, the timeline_ready transition, and the timeline read endpoints
 
+> Amended by ADR 0007: `game_events` are ingested manually at completion and
+> surface as `type: "game_event"` timestamps in `session_timeline`.
+> Amended by ADR 0008: an `annotations` table arrives; `AdvanceSessionAfterProcessing`
+> also waits on game-state alignment when a session has game events.
+
 ADR 0004 deferred the design of `comm_events` and left a completed session in
 `processing` with no coded exit. This milestone builds keyword-based
 communication-event detection, the transition out of `processing`, and the read
