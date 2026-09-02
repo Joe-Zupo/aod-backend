@@ -57,7 +57,7 @@ class TeamSettingsTest extends TestCase
 
         $this->assertDatabaseHas('team_settings', [
             'team_id' => $team->id,
-            'setting_name' => 'comm_event_padding_ms',
+            'setting_name' => 'comm_event_padding',
             'setting_parameter' => 2000,
         ]);
     }
@@ -138,7 +138,7 @@ class TeamSettingsTest extends TestCase
 
         $this->assertDatabaseHas('team_settings', [
             'team_id' => $team->id,
-            'setting_name' => 'comm_event_padding_ms',
+            'setting_name' => 'comm_event_padding',
             'setting_parameter' => 3500,
         ]);
     }
@@ -279,6 +279,15 @@ class TeamSettingsTest extends TestCase
 
         $this->actingAs($coach, 'sanctum')
             ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 2147483648])
+            ->assertStatus(422);
+    }
+
+    public function test_update_rejects_a_non_positive_threshold(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 0])
             ->assertStatus(422);
     }
 }
