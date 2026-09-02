@@ -23,6 +23,7 @@ class SessionParticipantFactory extends Factory
             'session_id' => Session::factory(),
             'user_id' => User::factory(),
             'participant_role' => 'player',
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_READY,
             'joined_at' => now(),
             'left_at' => null,
         ];
@@ -31,5 +32,10 @@ class SessionParticipantFactory extends Factory
     public function left(): static
     {
         return $this->state(['left_at' => now()]);
+    }
+
+    public function needsConsent(): static
+    {
+        return $this->state(['participant_status' => SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT]);
     }
 }

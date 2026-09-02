@@ -37,9 +37,9 @@ class SessionFactory extends Factory
         return $this->state(['status' => Session::STATUS_IN_PROGRESS]);
     }
 
-    public function completed(): static
+    public function processing(): static
     {
-        return $this->state(['status' => Session::STATUS_COMPLETED]);
+        return $this->state(['status' => Session::STATUS_PROCESSING]);
     }
 
     public function cancelled(): static

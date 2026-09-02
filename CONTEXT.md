@@ -9,11 +9,12 @@ A single recorded game (one scrim or match), from lobby through completion. Scop
 _Avoid_: scrim, match, game (when referring to the system entity)
 
 **Timeline**:
-The synchronized data spine of a Session — the canonical clock that AOD, VOD, and Riot match data are all aligned to via millisecond offsets.
+The synchronized data spine of a Session, the canonical clock that AOD, VOD, and Riot match data are aligned to via millisecond offsets. Created when the Session enters `processing`, not at Session creation, so a `queuing`, `in_progress`, or `cancelled` Session has none (see `docs/adr/0004-transcription-pipeline.md`).
 
 **Session status**:
-A Session's lifecycle state: `queuing` → `in_progress` → `completed`, or `cancelled` — reachable from either `queuing` (before recording starts) or `in_progress` (aborting a run already underway). A Session reaches `completed` only once at least one Session Participant's AOD and VOD have been delivered — the Coach declaring the session stopped is necessary but not sufficient. Aborting an `in_progress` Session never persists partial AOD/VOD: recordings only become server-side records once a session actually reaches `completed`, so cancelling mid-run discards nothing that was ever saved.
-_Avoid_: lobby, waiting (used by the design flowchart, but `queuing` is the canonical term going forward)
+A Session's lifecycle state: `queuing`, then `in_progress`, then `processing`, or `cancelled` from either `queuing` (before recording starts) or `in_progress` (aborting a run already underway). A Coach starts the Session to move it from `queuing` to `in_progress`, allowed only once every present player has given Consent, and that transition is also when recording begins for every consented player. The per-participant recording lifecycle is a separate term (see **Session Participant status**). A Coach completes an `in_progress` Session in one call that carries an audio and video slot for every recording player; it moves to `processing` once at least one slot holds both. There is no separate stop declaration, and data never arrives ahead of it. Aborting an `in_progress` Session never persists partial AOD/VOD: recordings only become server-side records once a Session reaches `processing`, so cancelling mid-run discards nothing that was ever saved.
+`processing` is the first state of the analysis pipeline, whose full target is `processing`, then `timeline_ready`, then `annotating`, then `ready_for_review` (shown to coaches as "Timeline Ready"). Only `processing` is built so far; the later states arrive with the milestones that produce their transitions (see `docs/adr/0004-transcription-pipeline.md`). A `processing` Session is not "live": it does not block the team from starting the next Session, `GET /sessions/{id}` refuses it with 409, and the team session index still lists it with a transcription-progress figure.
+_Avoid_: lobby, waiting (used by the design flowchart, but `queuing` is the canonical term going forward); completed (the pipeline replaced it as the post-recording state)
 
 **Team Member**:
 A user's ongoing relationship to a team (active, pending, or removed), independent of any particular Session.
@@ -23,7 +24,15 @@ Reflects whether a user is authenticated since their last logout — set the mom
 _Avoid_: presence, active (as in "actively connected") — neither implies the auth-boundary meaning this term actually has
 
 **Session Participant**:
-A Team Member's participation in one specific Session. Its role is a snapshot of the member's team role at join time — it does not itself grant or change any authority.
+A Team Member's participation in one specific Session. Its role is a snapshot of the member's team role at join time — it does not itself grant or change any authority. Where the participant sits in the recording lifecycle is tracked separately as **Session Participant status**.
+
+**Session Participant status**:
+Where one Session Participant sits in the recording lifecycle for their Session: `needs_consent`, then `ready`, then `recording`, then `completed`. It only ever moves forward, one step at a time. A player joins at `needs_consent` and reaches `ready` by giving Consent. A Coach joins at `ready` and never records, so a Coach's status stays `ready` for the whole Session. Every consented player moves to `recording` when the Coach starts the Session. Session completion then moves every `recording` participant to `completed` in one sweep, whether or not that participant's own AOD and VOD were among those delivered.
+_Avoid_: state, stage
+
+**Consent** (of a Session Participant):
+A player's explicit agreement to be recorded in one Session. Giving it moves their Session Participant status from `needs_consent` to `ready`. It is asked once per Session and every time; a player who leaves and rejoins gives it again. A Coach has nothing to consent to. There is no Coach override to start a Session past a player who has not consented; that player leaves, or the Coach cancels the Session.
+_Avoid_: opt-in, waiver, agreement
 
 **Main Coach**:
 A team's sole designated leader. Only the Main Coach can manage team membership (approve/reject join requests, remove members). If the Main Coach leaves the team, the team disbands.
@@ -35,7 +44,8 @@ A Coach-role team member without leadership authority over team membership, but 
 A team's live, single configuration for detection tuning (dead-air threshold, keyword list). Editing it never retroactively changes analysis already produced for a `completed` Session.
 
 **Team Keyword**:
-One configured keyword or phrase a team wants detected in transcripts, tagged with a Category.
+One configured single word a team wants detected in transcripts, tagged with a Category. Callouts read naturally as phrases (see the Category examples below), but detection in this prototype matches individual transcript tokens, so a Team Keyword is always one word — no spaces. Multi-word phrase matching is deferred (see `docs/adr/0001-single-word-team-keywords.md`).
+_Avoid_: phrase
 
 **Category** (of a Team Keyword / Callout Detection):
 Fixed taxonomy of exactly two values, grounded in the communication-effectiveness research this project builds on:
@@ -44,3 +54,11 @@ Fixed taxonomy of exactly two values, grounded in the communication-effectivenes
 
 **Dead Air**:
 A stretch of a Session where no team member communicated at all, evaluated across the whole team's combined audio — not per individual player.
+
+**Transcript** (of an AOD):
+One AssemblyAI transcription of one player's stored audio, one per `aod_records` row. Carries its own status (`queued`, then `processing`, then `completed` or `failed`), the full text, the detected language, an overall confidence, and the raw provider response. Only English and Filipino are accepted; a transcript that comes back in any other language is `failed`. The word-level detail is a separate term (see **Transcript Word**). Re-running a `failed` transcript overwrites it; transcripts are not versioned. See `docs/adr/0004-transcription-pipeline.md`.
+_Avoid_: transcription (that is the process), caption, subtitle
+
+**Transcript Word**:
+One token of a Transcript, with its start and end in milliseconds and the model's confidence, kept in transcript order. Timestamps are relative to the start of the audio file; under the current zero-offset assumption they are read as Timeline-relative.
+_Avoid_: token; timestamp (reserved for a later Timeline term)

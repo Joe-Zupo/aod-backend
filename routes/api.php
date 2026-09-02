@@ -32,6 +32,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/teams/join-requests/{user}', [TeamController::class, 'decideJoinRequest']);
     Route::get('/teams/settings', [TeamSettingsController::class, 'show']);
     Route::put('/teams/settings', [TeamSettingsController::class, 'update']);
+    Route::put('/teams/settings/keywords', [TeamSettingsController::class, 'updateKeywords']);
 
     // Session routes use explicit route-model binding and authorize directly
     // against {session}'s team via SessionPolicy, deliberately not the
@@ -40,5 +41,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/teams/{team}/sessions', [SessionController::class, 'store']);
     Route::get('/sessions/{session}', [SessionController::class, 'show']);
     Route::post('/sessions/{session}/join', [SessionController::class, 'join']);
+    Route::post('/sessions/{session}/consent', [SessionController::class, 'consent']);
+    Route::post('/sessions/{session}/start', [SessionController::class, 'start']);
+    Route::post('/sessions/{session}/cancel', [SessionController::class, 'cancel']);
+    Route::post('/sessions/{session}/complete', [SessionController::class, 'complete']);
 
 });

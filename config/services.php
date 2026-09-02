@@ -35,4 +35,17 @@ return [
         ],
     ],
 
+    'assemblyai' => [
+        'api_key' => env('ASSEMBLYAI_API_KEY'),
+        'base_url' => env('ASSEMBLYAI_BASE_URL', 'https://api.assemblyai.com'),
+        // Reserved for a public callback URL. None in dev, so the jobs poll.
+        'webhook_url' => env('ASSEMBLYAI_WEBHOOK_URL'),
+        // Only these detected languages are accepted; anything else fails the
+        // transcript loudly rather than storing a wrong-language result.
+        'accepted_languages' => ['en', 'tl'],
+        'poll_interval_seconds' => (int) env('ASSEMBLYAI_POLL_INTERVAL_SECONDS', 15),
+        'max_polls' => (int) env('ASSEMBLYAI_MAX_POLLS', 40),
+        'job_tries' => (int) env('ASSEMBLYAI_JOB_TRIES', 3),
+    ],
+
 ];

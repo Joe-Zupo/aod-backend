@@ -55,15 +55,26 @@ class SessionPolicy
     }
 
     /**
-     * Any active Coach on the session's team may start/stop/cancel it, not just
-     * whoever created it.
+     * Any active team member may reach the consent endpoint; whether they
+     * actually have anything to consent to (a current non-Coach participant
+     * row, an open session) is the model's guard, surfaced as a 422 rather
+     * than a policy denial.
+     */
+    public function consent(User $user, Session $session): Response
+    {
+        return $this->isActiveMember($user, $session->team);
+    }
+
+    /**
+     * Any active Coach on the session's team may start/complete/cancel it, not
+     * just whoever created it.
      */
     public function start(User $user, Session $session): Response
     {
         return $this->isActiveCoach($user, $session->team);
     }
 
-    public function stop(User $user, Session $session): Response
+    public function complete(User $user, Session $session): Response
     {
         return $this->isActiveCoach($user, $session->team);
     }

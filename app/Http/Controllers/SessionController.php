@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Exceptions\SessionTransitionException;
+use App\Http\Requests\CompleteSessionRequest;
 use App\Http\Requests\StoreSessionRequest;
 use App\Http\Resources\SessionResource;
 use App\Models\Session;
@@ -52,10 +54,11 @@ class SessionController extends Controller
     /**
      * Create Session
      *
-     * Create a Session and its Timeline together, atomically, for the given team,
-     * and add the creating Coach as its first Session Participant. Restricted to
-     * any active Coach, main or assistant. Rejected if the team already has a
-     * non-terminal (queuing/in_progress) session.
+     * Create a Session for the given team and add the creating Coach as its
+     * first Session Participant. Restricted to any active Coach, main or
+     * assistant. Rejected if the team already has a non-terminal
+     * (queuing/in_progress) session. The Timeline is created later, when the
+     * session is completed and enters processing.
      */
     public function store(StoreSessionRequest $request, Team $team): JsonResponse
     {
@@ -74,11 +77,17 @@ class SessionController extends Controller
      * Session Return
      *
      * Return a session and its participants. Restricted to any active member
-     * of the session's team.
+     * of the session's team. Refused with 409 while the session is processing:
+     * the analysis pipeline is mid-run and there is no coherent session view to
+     * return yet. Progress is on the team session index instead.
      */
     public function show(Request $request, Session $session): JsonResponse
     {
         $this->authorize('view', $session);
+
+        if ($session->status === Session::STATUS_PROCESSING) {
+            return $this->error('This session is still processing.', 409);
+        }
 
         return $this->success('Session retrieved.', [
             'session' => new SessionResource($session->load('activeParticipants.user')),
@@ -108,6 +117,107 @@ class SessionController extends Controller
         }
 
         return $this->success('Joined session.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
+
+    /**
+     * Record Consent
+     *
+     * Move the authenticated caller's own participant row from needs_consent
+     * to ready. Idempotent once already ready. Restricted to any active member
+     * of the session's team; a Coach, a non-participant, or a session past the
+     * point of consent is rejected with 422.
+     */
+    public function consent(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('consent', $session);
+
+        try {
+            $session->recordConsent($request->user());
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Consent recorded.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
+
+    /**
+     * Start Session
+     *
+     * Transition a queuing session to in_progress. Restricted to any active
+     * Coach on the session's team, not just its creator.
+     */
+    public function start(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('start', $session);
+
+        try {
+            $session->start();
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Session started.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
+
+    /**
+     * Cancel Session
+     *
+     * Transition a queuing or in_progress session to cancelled. Restricted to
+     * any active Coach on the session's team, not just its creator.
+     */
+    public function cancel(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('cancel', $session);
+
+        try {
+            $session->cancel();
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Session cancelled.', [
+            'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
+
+    /**
+     * Complete Session
+     *
+     * Take an audio and video slot for every recording player, store whatever
+     * files the slots hold, then transition the in_progress session to completed
+     * and sweep every recording participant to completed. Restricted to any
+     * active Coach on the session's team, not just its creator. Rejected with
+     * 422 if the session is not in_progress, the submitted player ids do not
+     * match the recording roster exactly, or no slot holds both files.
+     */
+    public function complete(CompleteSessionRequest $request, Session $session): JsonResponse
+    {
+        $this->authorize('complete', $session);
+
+        $players = $request->validated('players');
+
+        $entries = [];
+        foreach (array_keys($players) as $i) {
+            $entries[] = [
+                'user_id' => (int) $players[$i]['user_id'],
+                'audio' => $request->file("players.{$i}.audio"),
+                'video' => $request->file("players.{$i}.video"),
+            ];
+        }
+
+        try {
+            $session->complete($entries);
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Session completed.', [
             'session' => new SessionResource($session->load('activeParticipants.user')),
         ]);
     }

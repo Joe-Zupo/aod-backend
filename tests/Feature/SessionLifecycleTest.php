@@ -22,7 +22,7 @@ class SessionLifecycleTest extends TestCase
         }
     }
 
-    public function test_active_coach_can_create_a_session_and_its_timeline(): void
+    public function test_active_coach_can_create_a_session(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
 
@@ -38,11 +38,18 @@ class SessionLifecycleTest extends TestCase
             'session_name' => 'Scrim vs Team B',
             'status' => 'queuing',
         ]);
+    }
+
+    public function test_creating_a_session_does_not_create_its_timeline_yet(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/teams/{$team->id}/sessions", ['session_name' => 'Scrim vs Team B'])
+            ->assertCreated();
 
         $session = $team->sessions()->first();
-        $this->assertDatabaseHas('timelines', [
-            'session_id' => $session->id,
-        ]);
+        $this->assertDatabaseMissing('timelines', ['session_id' => $session->id]);
     }
 
     public function test_creating_a_session_automatically_joins_the_creating_coach_as_a_participant(): void
@@ -75,6 +82,18 @@ class SessionLifecycleTest extends TestCase
             ->assertStatus(422);
 
         $this->assertDatabaseCount('app_sessions', 1);
+    }
+
+    public function test_a_processing_session_does_not_block_creating_the_next_one(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $this->createSession($team, $coach, 'processing', 'Last scrim, still transcribing');
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/teams/{$team->id}/sessions", ['session_name' => 'Next scrim'])
+            ->assertCreated();
+
+        $this->assertDatabaseCount('app_sessions', 2);
     }
 
     public function test_assistant_coach_can_create_a_session(): void
@@ -127,7 +146,8 @@ class SessionLifecycleTest extends TestCase
             ->getJson("/api/sessions/{$session->id}")
             ->assertOk()
             ->assertJsonPath('data.session.session_name', 'Scrim vs Team B')
-            ->assertJsonCount(1, 'data.session.participants');
+            ->assertJsonCount(1, 'data.session.participants')
+            ->assertJsonPath('data.session.participants.0.participant_status', 'ready');
     }
 
     public function test_outsider_gets_404_viewing_a_session(): void
@@ -285,17 +305,17 @@ class SessionLifecycleTest extends TestCase
         $this->assertSame('queuing', $session->fresh()->status);
     }
 
-    public function test_logging_out_does_not_affect_a_completed_sessions_participants(): void
+    public function test_logging_out_does_not_affect_a_processing_sessions_participants(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
-        $session = $this->createSession($team, $coach, 'completed');
+        $session = $this->createSession($team, $coach, 'processing');
         $this->addParticipant($session, $coach, 'main_coach');
 
         $this->withToken($coach->createToken('auth-token')->plainTextToken)
             ->postJson('/api/logout')->assertOk();
 
         $this->assertNull($session->participants()->where('user_id', $coach->id)->first()->left_at);
-        $this->assertSame('completed', $session->fresh()->status);
+        $this->assertSame('processing', $session->fresh()->status);
     }
 
     public function test_outsider_gets_404_joining_a_session(): void
@@ -358,7 +378,7 @@ class SessionLifecycleTest extends TestCase
     public function test_index_returns_the_queuing_session_as_live_and_others_as_past(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
-        $completed = $this->createSession($team, $coach, 'completed', 'Old scrim');
+        $processing = $this->createSession($team, $coach, 'processing', 'Old scrim');
         $cancelled = $this->createSession($team, $coach, 'cancelled', 'Aborted scrim');
         $live = $this->createSession($team, $coach, 'queuing', 'Current scrim');
 
@@ -371,7 +391,7 @@ class SessionLifecycleTest extends TestCase
             ->assertJsonCount(2, 'data.past_sessions');
 
         $pastIds = collect($response->json('data.past_sessions'))->pluck('id')->all();
-        $this->assertEqualsCanonicalizing([$completed->id, $cancelled->id], $pastIds);
+        $this->assertEqualsCanonicalizing([$processing->id, $cancelled->id], $pastIds);
         $this->assertArrayNotHasKey('participants', $response->json('data.live_session'));
     }
 
@@ -391,7 +411,7 @@ class SessionLifecycleTest extends TestCase
     public function test_index_has_no_live_session_when_team_has_no_queuing_session(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
-        $this->createSession($team, $coach, 'completed', 'Old scrim');
+        $this->createSession($team, $coach, 'processing', 'Old scrim');
 
         $this->actingAs($coach, 'sanctum')
             ->getJson("/api/teams/{$team->id}/sessions")
@@ -403,8 +423,8 @@ class SessionLifecycleTest extends TestCase
     public function test_index_search_filters_past_sessions_by_name(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
-        $this->createSession($team, $coach, 'completed', 'Scrim vs Alpha');
-        $this->createSession($team, $coach, 'completed', 'Scrim vs Beta');
+        $this->createSession($team, $coach, 'processing', 'Scrim vs Alpha');
+        $this->createSession($team, $coach, 'processing', 'Scrim vs Beta');
 
         $this->actingAs($coach, 'sanctum')
             ->getJson("/api/teams/{$team->id}/sessions?search=Alpha")
@@ -416,9 +436,9 @@ class SessionLifecycleTest extends TestCase
     public function test_index_orders_past_sessions_by_date(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
-        $older = $this->createSession($team, $coach, 'completed', 'Older scrim');
+        $older = $this->createSession($team, $coach, 'processing', 'Older scrim');
         $older->forceFill(['created_at' => now()->subDays(2)])->save();
-        $newer = $this->createSession($team, $coach, 'completed', 'Newer scrim');
+        $newer = $this->createSession($team, $coach, 'processing', 'Newer scrim');
         $newer->forceFill(['created_at' => now()->subDay()])->save();
 
         $this->actingAs($coach, 'sanctum')
@@ -438,7 +458,7 @@ class SessionLifecycleTest extends TestCase
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
         for ($i = 1; $i <= 3; $i++) {
-            $this->createSession($team, $coach, 'completed', "Scrim {$i}");
+            $this->createSession($team, $coach, 'processing', "Scrim {$i}");
         }
 
         $this->actingAs($coach, 'sanctum')

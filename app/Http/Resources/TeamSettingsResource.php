@@ -26,7 +26,10 @@ class TeamSettingsResource extends JsonResource
             'dead_air_threshold_ms' => $deadAirThreshold->setting_parameter,
             'informative_keywords' => $informative->keywords->pluck('keyword'),
             'declarative_keywords' => $declarative->keywords->pluck('keyword'),
-            'updated_at' => $deadAirThreshold->updated_at,
+            // Newest touch across all three setting rows: a keyword-list edit
+            // touches its bucket row, so it moves this too, not just a
+            // dead-air-threshold change.
+            'updated_at' => $this->resource->max('updated_at'),
         ];
     }
 }

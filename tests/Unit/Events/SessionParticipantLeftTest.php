@@ -31,6 +31,7 @@ class SessionParticipantLeftTest extends TestCase
             'session_id' => 42,
             'user_id' => $user->id,
             'participant_role' => 'player',
+            'participant_status' => 'recording',
             'joined_at' => '2026-08-26 12:00:00',
             'left_at' => '2026-08-26 13:30:00',
         ]);
@@ -43,6 +44,7 @@ class SessionParticipantLeftTest extends TestCase
             'user_id' => $user->id,
             'username' => 'trevor',
             'participant_role' => 'player',
+            'participant_status' => 'recording',
             'joined_at' => '2026-08-26T12:00:00.000000Z',
             'left_at' => '2026-08-26T13:30:00.000000Z',
         ], json_decode(json_encode($payload), true));

@@ -3,7 +3,9 @@
 namespace Tests\Unit\Models;
 
 use App\Events\SessionParticipantLeft;
+use App\Events\SessionParticipantStatusChanged;
 use App\Models\Session;
+use App\Models\SessionParticipant;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -27,5 +29,32 @@ class SessionParticipantBroadcastingTest extends TestCase
         $participant->leave();
 
         Event::assertDispatched(SessionParticipantLeft::class, fn ($event) => $event->participant->is($participant));
+    }
+
+    public function test_advancing_status_dispatches_session_participant_status_changed(): void
+    {
+        $participant = SessionParticipant::factory()->needsConsent()->create();
+
+        Event::fake([SessionParticipantStatusChanged::class]);
+
+        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_READY);
+
+        Event::assertDispatched(
+            SessionParticipantStatusChanged::class,
+            fn ($event) => $event->participant->is($participant),
+        );
+    }
+
+    public function test_a_no_op_status_move_dispatches_nothing(): void
+    {
+        $participant = SessionParticipant::factory()->create([
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_READY,
+        ]);
+
+        Event::fake([SessionParticipantStatusChanged::class]);
+
+        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_READY);
+
+        Event::assertNotDispatched(SessionParticipantStatusChanged::class);
     }
 }

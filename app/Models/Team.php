@@ -80,6 +80,24 @@ class Team extends Model
         });
     }
 
+    /**
+     * The team's configured keyword strings across both category buckets,
+     * de-duplicated. Sent to AssemblyAI as a word-boost list at transcription
+     * submit time, which is also what snapshots them for a session: a later
+     * edit to Team Settings does not reach an already-submitted transcript.
+     *
+     * @return string[]
+     */
+    public function keywordList(): array
+    {
+        return TeamKeyword::query()
+            ->whereIn('team_settings_id', $this->settings()->select('id'))
+            ->pluck('keyword')
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     public function members(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'team_members')
