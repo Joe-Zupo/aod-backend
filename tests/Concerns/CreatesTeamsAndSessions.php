@@ -57,6 +57,20 @@ trait CreatesTeamsAndSessions
         ]);
     }
 
+    /**
+     * A minimal valid game_events payload, JSON-encoded for the multipart
+     * completion body. game_events is a required field when completing a
+     * session (docs/adr/0007-manual-game-event-ingest.md); completion tests
+     * whose subject is not game events send this so the call gets past the
+     * guard.
+     */
+    private function stubGameEvents(): string
+    {
+        return json_encode([
+            ['type' => 'round_win', 'match_time_ms' => 1000, 'round_number' => 1],
+        ]);
+    }
+
     private function addParticipant(
         Session $session,
         User $user,

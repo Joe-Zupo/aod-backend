@@ -47,7 +47,7 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
                 $this->empty($players[1]),
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertOk()
             ->assertJsonPath('data.session.status', Session::STATUS_PROCESSING);
 
@@ -80,7 +80,7 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
                 ['user_id' => $players[1]->id, 'audio' => UploadedFile::fake()->create('a.wav', 16, 'audio/wav')],
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertDatabaseHas('aod_records', ['session_participant_id' => $parts[$players[1]->id]->id]);
@@ -95,7 +95,7 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
                 ['user_id' => $players[1]->id, 'video' => UploadedFile::fake()->create('v.webm', 16, 'video/webm')],
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertDatabaseHas('vod_records', ['session_participant_id' => $parts[$players[1]->id]->id]);
@@ -110,7 +110,7 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
                 $this->empty($players[1]),
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertDatabaseHas('session_participants', [
@@ -129,7 +129,7 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 ['user_id' => $players[0]->id, 'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg')],
                 ['user_id' => $players[1]->id, 'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4')],
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertStatus(422)
             ->assertJsonPath('message', 'At least one player must provide both an audio and a video recording.');
 
@@ -145,7 +145,7 @@ class SessionCompletionTest extends TestCase
         $this->actingAs($coach, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertStatus(422)
             ->assertJsonPath('message', "Completion must cover every recording player. Missing: {$players[1]->id}.");
 
@@ -162,7 +162,7 @@ class SessionCompletionTest extends TestCase
                 $this->pair($players[0]),
                 $this->empty($players[1]),
                 $this->empty($bystander),
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertStatus(422)
             ->assertJsonPath('message', "Completion must cover every recording player. Not recording: {$bystander->id}.");
 
@@ -178,7 +178,7 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
                 $this->empty($bystander),
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertStatus(422)
             ->assertJsonPath(
                 'message',
@@ -197,7 +197,7 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
                 $this->empty($players[1]),
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertDatabaseHas('session_participants', [
@@ -214,7 +214,7 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
                 $this->empty($players[0]),
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertStatus(422)
             ->assertJsonStructure(['data' => ['errors' => ['players.0.user_id']]]);
     }
@@ -240,7 +240,7 @@ class SessionCompletionTest extends TestCase
                     'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
                     'video' => UploadedFile::fake()->create('huge.mp4', 3_000_000, 'video/mp4'),
                 ],
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertStatus(422)
             ->assertJsonStructure(['data' => ['errors' => ['players.0.video']]]);
 
@@ -258,7 +258,7 @@ class SessionCompletionTest extends TestCase
                     'audio' => UploadedFile::fake()->create('notes.pdf', 16, 'application/pdf'),
                     'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
                 ],
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertStatus(422)
             ->assertJsonStructure(['data' => ['errors' => ['players.0.audio']]]);
     }
@@ -284,7 +284,7 @@ class SessionCompletionTest extends TestCase
         $assistant = $this->makeAndAttachMember($team, 'assistant_coach', 'Coach', $mainCoach);
 
         $this->actingAs($assistant, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertOk()
             ->assertJsonPath('data.session.status', Session::STATUS_PROCESSING);
     }
@@ -294,7 +294,7 @@ class SessionCompletionTest extends TestCase
         [, , $session, $players] = $this->recordingSession(1);
 
         $this->actingAs($players[0], 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertForbidden();
 
         $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_IN_PROGRESS]);
@@ -310,7 +310,7 @@ class SessionCompletionTest extends TestCase
         $this->attachActiveMember($otherTeam, $otherCoach, 'main_coach', $otherCoach);
 
         $this->actingAs($otherCoach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertNotFound();
     }
 
@@ -318,7 +318,7 @@ class SessionCompletionTest extends TestCase
     {
         [, , $session, $players] = $this->recordingSession(1);
 
-        $this->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+        $this->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertUnauthorized();
     }
 
@@ -335,12 +335,13 @@ class SessionCompletionTest extends TestCase
         Storage::shouldReceive('disk')->with('local')->andReturn($disk);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertStatus(500);
 
         $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_IN_PROGRESS]);
         $this->assertDatabaseCount('aod_records', 0);
         $this->assertDatabaseCount('vod_records', 0);
+        $this->assertDatabaseCount('game_events', 0);
     }
 
     public function test_complete_decides_on_the_stored_status_not_the_loaded_one(): void
@@ -412,7 +413,7 @@ class SessionCompletionTest extends TestCase
         [, $coach, $session, $players] = $this->recordingSession(1, $status);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertStatus(422)
             ->assertJsonPath('message', 'Only an in_progress session can be completed.');
 

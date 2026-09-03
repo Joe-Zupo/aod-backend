@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\CommEvent;
+use App\Models\GameEvent;
 use Illuminate\Support\Collection;
 
 /**
@@ -42,6 +43,29 @@ class TimelineMetrics
             'declarative' => (int) $events->where('communication_type', CommEvent::TYPE_DECLARATIVE)->count(),
             'compound' => (int) $events->where('communication_type', CommEvent::TYPE_COMPOUND)->count(),
             'total' => (int) $events->count(),
+        ];
+    }
+
+    /**
+     * Game-event counts by type plus the overall total, every type key always
+     * present so the shape is stable when a session has none of a kind.
+     *
+     * @param  Collection<int, GameEvent>  $events
+     * @return array{total: int, by_type: array{kill: int, death: int, spike_plant: int, spike_defuse: int, round_win: int, round_lost: int}}
+     */
+    public static function gameEventCounts($events): array
+    {
+        $tally = $events->countBy('type');
+
+        $byType = [];
+
+        foreach (GameEvent::TYPES as $type) {
+            $byType[$type] = (int) $tally->get($type, 0);
+        }
+
+        return [
+            'total' => (int) $events->count(),
+            'by_type' => $byType,
         ];
     }
 

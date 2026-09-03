@@ -70,7 +70,7 @@ One token of a Transcript, with its start and end in milliseconds and the model'
 _Avoid_: token
 
 **Timestamp** (of a Timeline):
-One marked interval on a Session's Timeline, with a start and end offset in milliseconds. Two kinds are built: a **Communication Event** (an interval) and a **Game Event** (a point, `start == end`). Coach-authored review points may become a third. The `session_timeline` endpoint returns them as one `type`-tagged list ordered by start offset.
+One marked interval on a Session's Timeline, with a start and end offset in milliseconds. Two kinds are built: a **Communication Event** (an interval) and a **Game Event** (a point, `start == end`). Coach-authored review points may become a third. The `session_timeline` endpoint groups Communication Events under each participant (`data.participants[].timestamps[]`) and returns Game Events as one session-level `data.game_events[]` ordered by match time.
 _Avoid_: marker; bare "event" (ambiguous between the two kinds)
 
 **Communication Event** (a kind of Timestamp):
@@ -84,7 +84,7 @@ One Team Keyword hit inside a Communication Event: the matched token, its normal
 The team-configured gap, in milliseconds, within which consecutive Team Keyword hits are taken as one Communication Event — also the window for flagging redundancy. Stored as the `comm_event_padding` Team Settings row, default 2000. Snapshot when detection runs; a later edit does not re-run detection on an already-processed Session (use the re-analyze endpoint for that).
 
 **Game Event** (a kind of Timestamp):
-One occurrence in the played game — `kill`, `death`, `spike_plant`, `spike_defuse`, `round_win`, `round_lost` — placed on the Timeline by `match_time_ms`. For non-round types a `side` (`ally` or `enemy`) names the team the event favours, which drives its favourable / unfavourable / neutral valence. Until Riot API access exists, Game Events are supplied as a hand-authored `game_events` JSON payload on the Session completion call (`source: manual`); a `riot` source is reserved. Optional per Session — a Session completed without them still reaches `timeline_ready`. See `docs/adr/0007-manual-game-event-ingest.md`.
+One occurrence in the played game — `kill`, `death`, `spike_plant`, `spike_defuse`, `round_win`, `round_lost` — placed on the Timeline by `match_time_ms`. For non-round types a `side` (`ally` or `enemy`) names the team the event favours, which drives its favourable / unfavourable / neutral valence. Until Riot API access exists, Game Events are supplied as a hand-authored `game_events` JSON payload on the Session completion call (`source: manual`); a `riot` source is reserved. Required on the completion call for this prototype: the call is refused with 422 if the payload is absent or empty. See `docs/adr/0007-manual-game-event-ingest.md` and `docs/agents/game-event-ingest.md`.
 _Avoid_: match event; Riot event (the source, not the record)
 
 **Match Time**:

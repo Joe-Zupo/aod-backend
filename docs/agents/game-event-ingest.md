@@ -68,6 +68,15 @@ A block whose `game_event` resolves to no row is an abort (see Procedure).
 - `tests/Fixtures/GameEvents/<slug>.source.txt` holds every raw paste for that match, verbatim, and is not read by tests.
 - A new match is a new file. Batches never cross matches.
 
+## Submitting the file
+
+The fixture file is the `game_events` value on `POST /sessions/{session}/complete`, sent in the multipart body beside `players[]`. Either form is accepted:
+
+- the `.json` file uploaded directly as `game_events`, or
+- its contents as a `game_events` text field holding the JSON string.
+
+`game_events` is required: an absent or empty payload is refused with 422.
+
 ## Output element
 
 Per `docs/adr/0007-manual-game-event-ingest.md`. `round_number` is always present in files authored here.
@@ -78,14 +87,12 @@ Per `docs/adr/0007-manual-game-event-ingest.md`. `round_number` is always presen
 
 Omit the `side` key entirely on `round_win` / `round_lost`.
 
-## Pending contract changes
+## Contract changes made for the prototype
 
-The prototype makes `game_events` mandatory on completion, which contradicts ADR 0007 and issue #13 as written. When #13 is implemented, apply these and record them as an ADR 0007 amendment.
+`game_events` is mandatory on completion, which the original ADR 0007 and issue #13 left optional. Landed with #13 and recorded in the ADR 0007 amendment (2026-09-03):
 
-- `CompleteSessionRequest` moves `game_events` from `nullable` to `required|array|min:1`.
-- `Session::complete()` drops its no-game-events branch.
-- Issue #13 strikes user story 3. Its validation and testing bullets assert 422 when `game_events` is absent.
-- `CONTEXT.md` Game Event entry rewrites the clause "Optional per Session, a Session completed without them still reaches `timeline_ready`".
-- ADR 0007 gains an amendment block covering the required change and the timeline-shape reconciliation from the batch-13 handoff.
-- `round_number` stays nullable in the endpoint schema for Riot compatibility.
-- Any other standing directive that contradicts the above is overwritten and adjusted for the prototype.
+- Presence is enforced in `SessionController::complete()` (422, absent or empty). Shape is `CompleteSessionRequest`'s job, all-or-nothing.
+- `round_number` stays nullable in the endpoint schema and table for Riot compatibility, though this grammar always supplies it.
+- `side` on a `round_win` / `round_lost` element is rejected, not stripped.
+- The timeline endpoint surfaces game events as a top-level `data.game_events[]`, not interleaved into a per-participant list.
+- `CONTEXT.md` Game Event and Timestamp entries updated to match.

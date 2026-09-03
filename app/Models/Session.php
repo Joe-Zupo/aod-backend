@@ -123,6 +123,11 @@ class Session extends Model
         return $this->hasMany(SessionParticipant::class);
     }
 
+    public function gameEvents(): HasMany
+    {
+        return $this->hasMany(GameEvent::class)->orderBy('match_time_ms');
+    }
+
     /**
      * Sessions still in flight (queuing or in_progress) — the single place
      * that defines "does this team have a session blocking a new one."
@@ -327,13 +332,13 @@ class Session extends Model
      *
      * @throws SessionTransitionException when a completion guard is not met
      */
-    public function complete(array $entries): void
+    public function complete(array $entries, array $gameEvents = []): void
     {
         $writtenPaths = [];
         $transcripts = [];
 
         try {
-            DB::transaction(function () use ($entries, &$writtenPaths, &$transcripts) {
+            DB::transaction(function () use ($entries, $gameEvents, &$writtenPaths, &$transcripts) {
                 $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
 
                 if ($status !== self::STATUS_IN_PROGRESS) {
@@ -374,6 +379,18 @@ class Session extends Model
                         $writtenPaths[] = $path = $this->storeRecording($entry['video'], $entry['user_id'], 'vod');
                         VodRecord::create($this->recordAttributes($participant, $entry['video'], $path));
                     }
+                }
+
+                foreach ($gameEvents as $event) {
+                    $this->gameEvents()->create([
+                        'source' => 'manual',
+                        'type' => $event['type'],
+                        'side' => $event['side'] ?? null,
+                        'match_time_ms' => $event['match_time_ms'],
+                        'round_number' => $event['round_number'] ?? null,
+                        'note' => $event['note'] ?? null,
+                        'raw' => $event,
+                    ]);
                 }
 
                 $this->update(['status' => self::STATUS_PROCESSING]);

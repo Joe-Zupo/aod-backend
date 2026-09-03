@@ -3,6 +3,7 @@
 namespace Tests\Unit\Support;
 
 use App\Models\CommEvent;
+use App\Models\GameEvent;
 use App\Support\TimelineMetrics;
 use Illuminate\Support\Collection;
 use PHPUnit\Framework\TestCase;
@@ -48,6 +49,40 @@ class TimelineMetricsTest extends TestCase
             ['informative' => 2, 'declarative' => 1, 'compound' => 1, 'total' => 4],
             $counts,
         );
+    }
+
+    public function test_game_event_counts_tally_each_type_plus_total(): void
+    {
+        $counts = TimelineMetrics::gameEventCounts(collect([
+            'kill', 'kill', 'death', 'spike_plant', 'round_win', 'round_win', 'round_lost',
+        ])->map(fn (string $type) => new GameEvent(['type' => $type])));
+
+        $this->assertSame([
+            'total' => 7,
+            'by_type' => [
+                'kill' => 2,
+                'death' => 1,
+                'spike_plant' => 1,
+                'spike_defuse' => 0,
+                'round_win' => 2,
+                'round_lost' => 1,
+            ],
+        ], $counts);
+    }
+
+    public function test_game_event_counts_are_all_zero_for_no_events(): void
+    {
+        $this->assertSame([
+            'total' => 0,
+            'by_type' => [
+                'kill' => 0,
+                'death' => 0,
+                'spike_plant' => 0,
+                'spike_defuse' => 0,
+                'round_win' => 0,
+                'round_lost' => 0,
+            ],
+        ], TimelineMetrics::gameEventCounts(collect()));
     }
 
     public function test_redundant_count_tallies_the_flag_across_every_type(): void

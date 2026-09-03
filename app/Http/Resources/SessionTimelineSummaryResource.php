@@ -51,6 +51,7 @@ class SessionTimelineSummaryResource extends JsonResource
                 'frequency_per_min' => TimelineMetrics::frequencyPerMin($allEvents->count(), $windowMs),
                 'comm_event_count' => TimelineMetrics::commEventCounts($allEvents),
                 'redundant_count' => TimelineMetrics::redundantCount($allEvents),
+                'game_events' => TimelineMetrics::gameEventCounts($this->gameEvents),
                 // Percentages of the session window, via TimelineMetrics::percentageOfWindow:
                 //   talk_percentage            = total_talk_ms     / session_window, as a percent
                 //   silence_percentage         = total_silence_ms  / session_window, as a percent

@@ -190,7 +190,7 @@ class SessionCommEventsTest extends TestCase
         [, $coach, $session, $players] = $this->recordingSession(1);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertSame(Session::STATUS_TIMELINE_READY, $session->fresh()->status);
@@ -249,7 +249,7 @@ class SessionCommEventsTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
                 $this->pair($players[1]),
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertSame(Session::STATUS_TIMELINE_READY, $session->fresh()->status);

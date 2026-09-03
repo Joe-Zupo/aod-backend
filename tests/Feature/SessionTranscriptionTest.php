@@ -45,7 +45,7 @@ class SessionTranscriptionTest extends TestCase
         [, $coach, $session, $players] = $this->recordingSession(1);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertOk()
             ->assertJsonPath('data.session.status', Session::STATUS_PROCESSING);
 
@@ -64,7 +64,7 @@ class SessionTranscriptionTest extends TestCase
         $this->assertDatabaseMissing('timelines', ['session_id' => $session->id]);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertDatabaseHas('timelines', ['session_id' => $session->id]);
@@ -80,7 +80,7 @@ class SessionTranscriptionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
                 $this->pair($players[1]),
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertDatabaseCount('transcripts', 2);
@@ -107,7 +107,7 @@ class SessionTranscriptionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
                 $this->pair($players[0]),
                 ['user_id' => $players[1]->id, 'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4')],
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertDatabaseCount('transcripts', 1);
@@ -125,7 +125,7 @@ class SessionTranscriptionTest extends TestCase
         [, $coach, $session, $players] = $this->recordingSession(1);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $transcript = Transcript::sole();
@@ -196,7 +196,7 @@ class SessionTranscriptionTest extends TestCase
         [, $coach, $session, $players] = $this->recordingSession(1);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $transcript = Transcript::sole();
@@ -267,7 +267,7 @@ class SessionTranscriptionTest extends TestCase
         [, $coach, $session, $players] = $this->recordingSession(1);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertSame(Transcript::STATUS_COMPLETED, Transcript::sole()->status);
@@ -282,7 +282,7 @@ class SessionTranscriptionTest extends TestCase
         [, $coach, $session, $players] = $this->recordingSession(1);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])]])
+            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->actingAs($coach, 'sanctum')

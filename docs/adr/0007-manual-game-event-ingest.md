@@ -124,3 +124,51 @@ Both stay behind the existing gate: 409 while `processing`, served from
   ADR 0008's alignment step is skipped.
 - `match_time_ms` rides on the zero-offset assumption (ADR 0004). A real match
   clock offset is the Timeline milestone's problem, not this one.
+
+## Amendment, 2026-09-03, issue #13 implementation
+
+Four points settled during implementation, all narrowing the decision for the
+prototype rather than reversing it.
+
+### `game_events` is required on the completion call
+
+The prototype's one prepared use case always carries game events, so completion
+without them is refused. Presence is enforced in `SessionController::complete()`,
+after `authorize()` but before `Session::complete()`, as a 422 with the message
+`Game events are required to complete a session.` (empty array included). It is
+**not** a `CompleteSessionRequest` rule. It does run ahead of the roster and
+status checks inside `Session::complete()`, so a request that both omits
+`game_events` and has a bad roster is told about `game_events` first; that is
+an accepted tradeoff for keeping the guard out of the completion transaction.
+Shape validation stays in `CompleteSessionRequest`.
+`prepareForValidation()` accepts `game_events` either as a JSON string or as an
+uploaded `.json` file (the fixture `docs/agents/game-event-ingest.md` produces
+is a file), normalises both to a decoded array, and then the element rules
+apply all-or-nothing. `Session::complete(array $entries, array $gameEvents =
+[])` keeps the default, so model-level callers and their tests are unaffected.
+This supersedes the "a session with no `game_events` is unaffected" consequence
+above for the HTTP path.
+
+### `round_number` is required only in the authoring grammar
+
+Every event block in `docs/agents/game-event-ingest.md` must carry a `round`
+line, but `round_number` stays `nullable` in the endpoint schema and the table,
+so a future Riot importer is not forced to supply it.
+
+### `side` on a round outcome is rejected
+
+`prohibited_if` on `game_events.*.side` when the type is `round_win` or
+`round_lost`. A contradictory payload fails 422 rather than having `side`
+silently stripped.
+
+### Timeline surfacing is a top-level `game_events` list
+
+The "How it surfaces" section assumed one top-level `timestamps[]` with game
+and communication events interleaved. Communication-event timestamps have since
+moved under `data.participants[].timestamps[]` (per-participant grouping). Game
+events are session-level, so `GET /sessions/{session}/timeline` carries them as
+a separate top-level `data.game_events[]`, ordered by `match_time_ms`, each
+entry shaped exactly as the `type: "game_event"` block above. There is no
+interleaved list, and `data.game_events` is `[]` when the session has none.
+`timeline-summary`'s `team.game_events` aggregate is unchanged from the
+decision.

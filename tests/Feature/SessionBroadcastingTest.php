@@ -322,7 +322,7 @@ class SessionBroadcastingTest extends TestCase
                 'user_id' => $player->id,
                 'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
                 'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
-            ]]])
+            ]], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         Event::assertDispatched(
@@ -344,7 +344,7 @@ class SessionBroadcastingTest extends TestCase
                 'user_id' => $player->id,
                 'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
                 'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
-            ]]])
+            ]], 'game_events' => $this->stubGameEvents()])
             ->assertStatus(422);
 
         Event::assertNotDispatched(SessionStatusChanged::class);
@@ -368,7 +368,7 @@ class SessionBroadcastingTest extends TestCase
                     'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
                 ],
                 ['user_id' => $two->id],
-            ]])
+            ], 'game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         Event::assertDispatchedTimes(SessionParticipantStatusChanged::class, 2);

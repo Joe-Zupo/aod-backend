@@ -150,6 +150,7 @@ class SessionController extends Controller
             'participants.user',
             'participants.aodRecord.transcript.commEvents.calloutDetections',
             'participants.vodRecord',
+            'gameEvents',
         ]);
 
         // Envelope spelled out rather than routed through success() so Scramble
@@ -181,6 +182,7 @@ class SessionController extends Controller
             'participants' => fn ($query) => $query->orderBy('id'),
             'participants.user',
             'participants.aodRecord.transcript.commEvents',
+            'gameEvents',
         ]);
 
         // Envelope spelled out rather than routed through success() so Scramble
@@ -337,8 +339,18 @@ class SessionController extends Controller
             ];
         }
 
+        // input(), not validated(): the game-event rows keep the original
+        // payload element in `raw`, so a key the schema does not yet name (a
+        // future Riot field, an author annotation) survives the round trip.
+        // Validation has already passed by this point.
+        $gameEvents = $request->input('game_events') ?? [];
+
+        if ($gameEvents === []) {
+            return $this->error('Game events are required to complete a session.', 422);
+        }
+
         try {
-            $session->complete($entries);
+            $session->complete($entries, $gameEvents);
         } catch (SessionTransitionException $e) {
             return $this->error($e->getMessage(), 422);
         }
