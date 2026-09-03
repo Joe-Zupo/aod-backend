@@ -1,0 +1,38 @@
+=== 2026-09-03 round 1 ===
+
+side: Ally
+timestamp: 0:16
+game_event: Jett kills Gekko
+
+side: Ally
+timestamp: 0:23
+game_event: Breach Planting
+
+side: Ally
+timestamp: 0:27
+game_event: Spike Planted
+
+side: Enemy
+timestamp: 0:27
+game_event: Reyna kills Jett
+
+side: Enemy
+timestamp: 0:36
+game_event: Reyna kills Raze
+
+side: Enemy
+timestamp: 0:43
+game_event: Reyna kills Sova
+
+side: Enemy
+timestamp: 0:47
+game_event: Reyna kills Breach
+
+side: Enemy
+timestamp: 0:50
+game_event: Round End Enemies Win
+
+--- transcription notes ---
+round_number 1 taken from the batch label; no per-block round line supplied.
+"Breach Planting" (0:23) dropped as the plant-start; "Spike Planted" (0:27) kept as the ADR 0007 spike_plant point.
+"Round End Enemies Win" resolved to round_lost, side dropped per the directive.

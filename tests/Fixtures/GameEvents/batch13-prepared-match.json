@@ -1,0 +1,9 @@
+[
+  { "type": "kill", "side": "ally", "match_time_ms": 16000, "round_number": 1, "note": null },
+  { "type": "spike_plant", "side": "ally", "match_time_ms": 27000, "round_number": 1, "note": null },
+  { "type": "kill", "side": "enemy", "match_time_ms": 27000, "round_number": 1, "note": null },
+  { "type": "kill", "side": "enemy", "match_time_ms": 36000, "round_number": 1, "note": null },
+  { "type": "kill", "side": "enemy", "match_time_ms": 43000, "round_number": 1, "note": null },
+  { "type": "kill", "side": "enemy", "match_time_ms": 47000, "round_number": 1, "note": null },
+  { "type": "round_lost", "match_time_ms": 50000, "round_number": 1, "note": null }
+]
