@@ -79,6 +79,11 @@ class Session extends Model
         'session_name',
         'session_code',
         'status',
+        'game_alignment_assessed_at',
+    ];
+
+    protected $casts = [
+        'game_alignment_assessed_at' => 'datetime',
     ];
 
     /**
@@ -433,8 +438,8 @@ class Session extends Model
      * session back to timeline_ready — the same fan-in the first analysis used,
      * so the read endpoints correctly 409 while the rebuild is in flight.
      *
-     * Scope today is communication events. When game-event detection lands it is
-     * dispatched from here too, so "re-analyze" always means the whole timeline.
+     * Communication events and, when the session has them, game-state alignment
+     * are both rebuilt, so "re-analyze" always means the whole timeline.
      *
      * @throws SessionTransitionException when the session has no ready timeline
      *                                    to rebuild, or no transcribed recording
@@ -462,7 +467,18 @@ class Session extends Model
             // processing session with every transcript still marked done.
             Transcript::whereKey($completed->modelKeys())->update(['comm_events_detected' => false]);
 
-            $this->update(['status' => self::STATUS_PROCESSING]);
+            // Drop game-state alignment too: its rows hang off comm events
+            // DetectCommEvents is about to rebuild, and its marker must be null
+            // so the fan-in re-runs the assessment before advancing (ADR 0008).
+            Annotation::query()
+                ->where('topic', Annotation::TOPIC_GAME_STATE_ALIGNMENT)
+                ->where('annotatable_type', (new CommEvent)->getMorphClass())
+                ->whereIn('annotatable_id', CommEvent::query()
+                    ->whereIn('transcript_id', $this->transcriptsQuery()->select('id'))
+                    ->select('id'))
+                ->delete();
+
+            $this->update(['status' => self::STATUS_PROCESSING, 'game_alignment_assessed_at' => null]);
 
             Broadcasting::safely(new SessionStatusChanged($this));
 

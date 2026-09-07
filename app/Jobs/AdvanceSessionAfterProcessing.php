@@ -21,6 +21,12 @@ use Illuminate\Support\Facades\DB;
  * reaches a terminal state; a run that finds the session not ready just returns
  * and a later transcript's completion re-runs it (see
  * docs/adr/0006-communication-events.md).
+ *
+ * When the session has game events, one more gate stands before
+ * `timeline_ready`: game-state alignment. This job dispatches
+ * AssessGameStateAlignment and returns without advancing; that job re-dispatches
+ * this one once its marker is set, and the next run advances (see
+ * docs/adr/0008-game-state-alignment.md).
  */
 class AdvanceSessionAfterProcessing implements ShouldQueue
 {
@@ -30,17 +36,19 @@ class AdvanceSessionAfterProcessing implements ShouldQueue
 
     public function handle(): void
     {
-        $advanced = DB::transaction(function () {
-            $status = Session::whereKey($this->session->getKey())->lockForUpdate()->value('status');
+        $outcome = DB::transaction(function () {
+            $session = Session::whereKey($this->session->getKey())
+                ->lockForUpdate()
+                ->first(['id', 'status', 'game_alignment_assessed_at']);
 
-            if ($status !== Session::STATUS_PROCESSING) {
-                return false;
+            if (! $session || $session->status !== Session::STATUS_PROCESSING) {
+                return 'noop';
             }
 
             $transcripts = $this->session->transcriptsQuery()->get(['status', 'comm_events_detected']);
 
             if ($transcripts->isEmpty()) {
-                return false;
+                return 'noop';
             }
 
             $allTerminal = $transcripts->every(fn ($transcript) => in_array(
@@ -54,15 +62,27 @@ class AdvanceSessionAfterProcessing implements ShouldQueue
                 ->every(fn ($transcript) => (bool) $transcript->comm_events_detected);
 
             if (! $allTerminal || ! $completedDetected) {
-                return false;
+                return 'noop';
+            }
+
+            // Alignment only gates a session that has game events, and only
+            // until it has been assessed once.
+            if ($session->game_alignment_assessed_at === null && $this->session->gameEvents()->exists()) {
+                return 'assess';
             }
 
             $this->session->update(['status' => Session::STATUS_TIMELINE_READY]);
 
-            return true;
+            return 'advanced';
         });
 
-        if ($advanced) {
+        if ($outcome === 'assess') {
+            AssessGameStateAlignment::dispatch($this->session);
+
+            return;
+        }
+
+        if ($outcome === 'advanced') {
             Broadcasting::safely(new SessionStatusChanged($this->session->refresh()));
         }
     }

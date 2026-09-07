@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\Annotation;
 use App\Models\CalloutDetection;
 use App\Models\CommEvent;
 use App\Models\Team;
@@ -105,6 +106,14 @@ class DetectCommEvents implements ShouldQueue
         $clusters = CommEventClusterer::cluster($hits, $paddingMs);
 
         DB::transaction(function () use ($transcript, $clusters, $paddingMs, $words) {
+            // Any annotation hanging off a comm event about to be deleted would
+            // be orphaned (polymorphic, no cascade), so clear them first. On a
+            // re-analysis AssessGameStateAlignment writes fresh rows afterward.
+            Annotation::query()
+                ->where('annotatable_type', (new CommEvent)->getMorphClass())
+                ->whereIn('annotatable_id', $transcript->commEvents()->select('id'))
+                ->delete();
+
             $transcript->commEvents()->delete();
 
             foreach ($clusters as $cluster) {
