@@ -11,9 +11,9 @@ class TeamSettings extends Model
 {
     use HasFactory;
 
-    // setting_name is a unit-free key for what the setting is; the two duration
-    // rows (dead_air_threshold, comm_event_padding) store milliseconds, which is
-    // also how the API takes and returns them.
+    // setting_name is a unit-free key for what the setting is; the duration rows
+    // (dead_air_threshold, comm_event_padding, game_alignment_window) store
+    // milliseconds, which is also how the API takes and returns them.
     public const SETTING_DEAD_AIR_THRESHOLD = 'dead_air_threshold';
 
     public const SETTING_INFORMATIVE_KEYWORDS = 'informative_keywords';
@@ -21,6 +21,8 @@ class TeamSettings extends Model
     public const SETTING_DECLARATIVE_KEYWORDS = 'declarative_keywords';
 
     public const SETTING_COMM_EVENT_PADDING = 'comm_event_padding';
+
+    public const SETTING_GAME_ALIGNMENT_WINDOW = 'game_alignment_window';
 
     protected $fillable = [
         'team_id',

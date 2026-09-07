@@ -28,6 +28,7 @@ class UpdateTeamSettingsRequest extends FormRequest
         return [
             'dead_air_threshold_ms' => ['required', 'integer', 'min:1', 'max:2147483647'],
             'comm_event_padding_ms' => ['sometimes', 'integer', 'min:1', 'max:2147483647'],
+            'game_alignment_window_ms' => ['sometimes', 'integer', 'min:1', 'max:2147483647'],
         ];
     }
 }

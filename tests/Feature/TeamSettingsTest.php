@@ -62,6 +62,17 @@ class TeamSettingsTest extends TestCase
         ]);
     }
 
+    public function test_creating_a_team_creates_its_game_alignment_window_setting(): void
+    {
+        $team = Team::create(['team_name' => 'Aces of Dawn', 'team_code' => 'TM-AODTEAM1']);
+
+        $this->assertDatabaseHas('team_settings', [
+            'team_id' => $team->id,
+            'setting_name' => 'game_alignment_window',
+            'setting_parameter' => 5000,
+        ]);
+    }
+
     public function test_main_coach_can_view_team_settings(): void
     {
         [$team, $coach] = $this->makeTeamWithMainCoach();
@@ -71,6 +82,7 @@ class TeamSettingsTest extends TestCase
             ->assertJsonPath('data.settings.team_id', $team->id)
             ->assertJsonPath('data.settings.dead_air_threshold_ms', 5000)
             ->assertJsonPath('data.settings.comm_event_padding_ms', 2000)
+            ->assertJsonPath('data.settings.game_alignment_window_ms', 5000)
             ->assertJsonCount(count(TeamKeyword::DEFAULT_INFORMATIVE_KEYWORDS), 'data.settings.informative_keywords')
             ->assertJsonCount(count(TeamKeyword::DEFAULT_DECLARATIVE_KEYWORDS), 'data.settings.declarative_keywords');
 
@@ -159,6 +171,41 @@ class TeamSettingsTest extends TestCase
 
         $this->actingAs($coach, 'sanctum')
             ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 5000, 'comm_event_padding_ms' => 0])
+            ->assertStatus(422);
+    }
+
+    public function test_main_coach_can_update_game_alignment_window(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 5000, 'game_alignment_window_ms' => 8000])
+            ->assertOk()
+            ->assertJsonPath('data.settings.game_alignment_window_ms', 8000);
+
+        $this->assertDatabaseHas('team_settings', [
+            'team_id' => $team->id,
+            'setting_name' => 'game_alignment_window',
+            'setting_parameter' => 8000,
+        ]);
+    }
+
+    public function test_update_without_game_alignment_window_leaves_it_untouched(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 7000])
+            ->assertOk()
+            ->assertJsonPath('data.settings.game_alignment_window_ms', 5000);
+    }
+
+    public function test_update_rejects_a_non_positive_game_alignment_window(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+
+        $this->actingAs($coach, 'sanctum')
+            ->putJson('/api/teams/settings', ['dead_air_threshold_ms' => 5000, 'game_alignment_window_ms' => 0])
             ->assertStatus(422);
     }
 
