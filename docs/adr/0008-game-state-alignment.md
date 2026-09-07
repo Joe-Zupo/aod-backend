@@ -168,3 +168,124 @@ is misleading as a headline.
 - Alignment output shifts if the keyword map, the pairs, or the window change; a
   re-assessment path is a follow-up alongside the re-detection and transcript
   re-run paths already deferred.
+
+## Amendment, 2026-09-07, issue #14 implementation
+
+Settled during implementation and a follow-up review. Two of these reverse
+wording in the decision above: the assessment values, and what gets a row.
+
+### The `annotations` table is polymorphic
+
+The attach is `annotatable_type` / `annotatable_id` (`morphs`), not the
+`comm_event_id` foreign key the decision named. Game-state alignment attaches to
+a `CommEvent`; dead-air correspondence (`docs/adr/0009`) will attach to a
+dead-air period through the same column pair; coach and player notes extend it.
+`user_id` is a nullable FK — null on every row today (system-generated), set
+once timeline management lets a coach or player author one. There is no database
+cascade (polymorphic), so `DetectCommEvents` and `Session::reanalyze()` delete a
+comm event's alignment annotations explicitly before its comm events are
+rebuilt.
+
+### A row is written for a callout with a nearby game event even if it makes no claim
+
+The decision assessed only mapped-keyword callouts. A row is written when the
+keyword maps **or** a game event falls in the window. A callout with neither a
+mapped keyword nor a nearby game event gets no row.
+
+### The assessment is soft valence, not correspondence
+
+The values are `possibly_positive` / `possibly_negative` / `neutral`, replacing
+`accurate` / `inaccurate` / `neutral`. Every row carries a sign; the same
+`App\Support\GameEventValence` reading drives it (favourable ->
+`possibly_positive`, unfavourable -> `possibly_negative`, neutral valence such
+as an enemy death -> `neutral`). This is `GameEventValence`'s first production
+caller.
+
+For a **mapped-keyword** callout:
+
+- The nearest **corroborating** game event (type equals the mapped kind, either
+  side) sets the sign through its valence.
+- A **contradiction-pair** event (`spike_defuse` + ally against a plant claim,
+  `spike_plant` + enemy against a defuse claim) is always `possibly_negative` —
+  the callout described a game state the opposite of what happened.
+- The nearer of the two decides when both are in the window; ties -> earlier
+  `match_time_ms`.
+- No corroborating or contradiction-pair event in the window -> `neutral`
+  (the claim was checkable and neither happened), even if unrelated events are
+  nearby.
+
+For a **narration-only** callout (keyword maps nothing, a game event is in the
+window), the sign is the nearest in-window game event's valence, so a bad play
+near a callout that made no claim still reads `possibly_negative`. This
+deliberately goes past "descriptive correspondence" — the coaching-verdict
+caveat below applies more heavily here — and was an explicit call: the nearby
+game state is the useful signal even when the words carried no claim.
+
+`side` still does not gate corroboration (a "planted" callout corroborates on a
+`spike_plant` of either side); it feeds the valence sign and narrows the
+contradiction pairs.
+
+The field now reads as a soft, hedged read of the moment rather than a
+correctness verdict; the thesis line that the tool does not judge communication
+quality is held by the `possibly_` hedge and the review nudge, both pointing the
+coach at the clip rather than pronouncing on it.
+
+### `game_event_ids` and the body
+
+`game_event_ids` lists every in-window game event, not only the relevant ones.
+For a mapped-callout decided (`possibly_positive` / `possibly_negative`) row the
+deciding event is first, then the rest by absolute distance to the callout span;
+a mapped `neutral` and a narration row list the in-window events nearest-first.
+This supersedes "a `neutral` assessment has an empty `game_event_ids`".
+
+`body` names the nearby game events with a signed offset ("900 ms later",
+"1.2s earlier", "during the callout"), capped at three with "and N more",
+pulling a player name from a `kill` / `death` event's `note` or `raw` when the
+feed carried one, else "an ally" / "an enemy". Every `possibly_negative` body
+ends with `Consider reviewing this moment.` (mapped or narration-only);
+`possibly_positive` and `neutral` bodies do not.
+`App\Support\GameStateAlignmentMap` is the keyword and contradiction
+vocabulary; `App\Support\GameStateAlignmentAssessor` is the pure window /
+nearest / valence / body logic, both unit-tested like `GameEventValence` and
+`CommEventClusterer`.
+
+### The keyword map ships whole, with inert rows
+
+The full map from the decision is shipped even though only `planted`,
+`planting`, `defused`, `defusing`, `down` and `dead` are default keywords. The
+`death` row (`died` / `lost` / `lost-someone`) has no backing default keyword
+and is inert until a team adds one or the `team_keywords.implies_event_type`
+extension lands.
+
+### The gate and the marker
+
+`game_alignment_window` is a fifth Team Settings row (API field
+`game_alignment_window_ms`), seeded lazily by `Team::ensureSettings()` at
+default 5000, no backfill migration — the `comm_event_padding` pattern. Its
+value is snapshot onto each annotation's `alignment_window_ms`.
+
+`AssessGameStateAlignment` is one job per session. It is idempotent (deletes and
+rewrites the session's `game_state_alignment` annotations), sets a new
+`app_sessions.game_alignment_assessed_at` timestamp, and re-dispatches
+`AdvanceSessionAfterProcessing`. The fan-in gains one clause: once every
+transcript is terminal and its comm events detected, a session that has game
+events and a null `game_alignment_assessed_at` dispatches the job and does not
+advance; the job's re-dispatch then finds the marker set and advances to
+`timeline_ready`. A session with no game events skips it. `Session::reanalyze()`
+nulls the marker and deletes the rows so a re-analyzed session cannot advance on
+stale alignment.
+
+### Timeline surfacing
+
+`GET /sessions/{session}/timeline`: each `communication_event` entry under
+`data.participants[].timestamps[]` carries an `annotations` array, always
+present, `[]` when none, each element `{ topic, assessment, body,
+game_event_ids }`. The top-level `data.game_events[]` is unchanged by this
+issue; it becomes the shared chronological parent for game events and dead-air
+periods in `docs/adr/0009`.
+
+`GET /sessions/{session}/timeline-summary`: `data.team` and each
+`data.participants[]` gain `alignment: { possibly_positive, possibly_negative,
+neutral, assessed_total }` over the `game_state_alignment` rows. Every alignment
+row has an assessment (narration rows included), so all of them count; the
+non-null filter only keeps a dead-air row out should one ever share the set.
