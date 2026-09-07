@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Support;
 
+use App\Models\Annotation;
 use App\Models\CommEvent;
 use App\Models\GameEvent;
 use App\Support\TimelineMetrics;
@@ -94,6 +95,47 @@ class TimelineMetricsTest extends TestCase
         ]));
 
         $this->assertSame(2, $count);
+    }
+
+    public function test_alignment_counts_tally_assessments_and_ignore_null_assessment_rows(): void
+    {
+        $events = collect([
+            $this->commEventWithAnnotations([
+                ['topic' => Annotation::TOPIC_GAME_STATE_ALIGNMENT, 'assessment' => 'possibly_positive'],
+            ]),
+            $this->commEventWithAnnotations([
+                ['topic' => Annotation::TOPIC_GAME_STATE_ALIGNMENT, 'assessment' => 'possibly_negative'],
+                ['topic' => Annotation::TOPIC_DEAD_AIR, 'assessment' => null],
+            ]),
+            $this->commEventWithAnnotations([]),
+        ]);
+
+        $this->assertSame(
+            ['possibly_positive' => 1, 'possibly_negative' => 1, 'neutral' => 0, 'assessed_total' => 2],
+            TimelineMetrics::alignmentCounts($events),
+        );
+    }
+
+    public function test_alignment_counts_are_all_zero_without_annotations(): void
+    {
+        $this->assertSame(
+            ['possibly_positive' => 0, 'possibly_negative' => 0, 'neutral' => 0, 'assessed_total' => 0],
+            TimelineMetrics::alignmentCounts(collect([$this->commEventWithAnnotations([])])),
+        );
+    }
+
+    /**
+     * @param  array<int, array{topic: string, assessment: ?string}>  $annotations
+     */
+    private function commEventWithAnnotations(array $annotations): CommEvent
+    {
+        $event = new CommEvent;
+        $event->setRelation(
+            'annotations',
+            collect($annotations)->map(fn (array $a) => new Annotation($a)),
+        );
+
+        return $event;
     }
 
     public function test_percentage_of_window_is_zero_for_a_non_positive_window(): void

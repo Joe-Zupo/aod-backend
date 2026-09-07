@@ -10,6 +10,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * One entry on a participant's timeline. Currently every timestamp is a
  * communication event with its callouts; the `type` tag is here so other
  * timestamp kinds (game events, manual markers) can join the same list later.
+ * `annotations` carries any system annotation on the callout (game-state
+ * alignment today) and is always present, empty when there is none.
  *
  * @mixin CommEvent
  */
@@ -26,6 +28,11 @@ class TimelineTimestampResource extends JsonResource
             'end_ms' => $this->end_ms,
             'content' => $this->content,
             'callouts' => CalloutDetectionResource::collection($this->whenLoaded('calloutDetections')),
+            'annotations' => $this->whenLoaded(
+                'annotations',
+                fn () => TimelineAnnotationResource::collection($this->annotations),
+                [],
+            ),
         ];
     }
 }

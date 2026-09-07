@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use App\Models\Annotation;
 use App\Models\CommEvent;
 use App\Models\GameEvent;
 use Illuminate\Support\Collection;
@@ -77,6 +78,37 @@ class TimelineMetrics
     public static function redundantCount($events): int
     {
         return $events->where('is_redundant', true)->count();
+    }
+
+    /**
+     * Game-state alignment tallies over a set of communication events: how many
+     * of their `game_state_alignment` annotations landed at each assessment,
+     * plus the assessed total. Every alignment row carries an assessment
+     * (a narration-only row is `neutral`); the null guard only keeps a dead-air
+     * row out should one ever share this set. Expects each event's `annotations`
+     * relation loaded.
+     *
+     * @param  Collection<int, CommEvent>  $events
+     * @return array{possibly_positive: int, possibly_negative: int, neutral: int, assessed_total: int}
+     */
+    public static function alignmentCounts($events): array
+    {
+        $byAssessment = $events
+            ->flatMap(fn ($event) => $event->annotations)
+            ->filter(fn (Annotation $annotation) => $annotation->topic === Annotation::TOPIC_GAME_STATE_ALIGNMENT
+                && $annotation->assessment !== null)
+            ->countBy('assessment');
+
+        $positive = (int) $byAssessment->get(Annotation::ASSESSMENT_POSSIBLY_POSITIVE, 0);
+        $negative = (int) $byAssessment->get(Annotation::ASSESSMENT_POSSIBLY_NEGATIVE, 0);
+        $neutral = (int) $byAssessment->get(Annotation::ASSESSMENT_NEUTRAL, 0);
+
+        return [
+            'possibly_positive' => $positive,
+            'possibly_negative' => $negative,
+            'neutral' => $neutral,
+            'assessed_total' => $positive + $negative + $neutral,
+        ];
     }
 
     /**

@@ -149,6 +149,7 @@ class SessionController extends Controller
             'participants' => fn ($query) => $query->orderBy('id'),
             'participants.user',
             'participants.aodRecord.transcript.commEvents.calloutDetections',
+            'participants.aodRecord.transcript.commEvents.annotations',
             'participants.vodRecord',
             'gameEvents',
         ]);
@@ -181,7 +182,7 @@ class SessionController extends Controller
         $session->load([
             'participants' => fn ($query) => $query->orderBy('id'),
             'participants.user',
-            'participants.aodRecord.transcript.commEvents',
+            'participants.aodRecord.transcript.commEvents.annotations',
             'gameEvents',
         ]);
 

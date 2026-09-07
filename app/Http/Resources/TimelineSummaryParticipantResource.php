@@ -30,6 +30,7 @@ class TimelineSummaryParticipantResource extends JsonResource
             'frequency_per_min' => TimelineMetrics::frequencyPerMin($events->count(), $windowMs),
             'comm_event_count' => TimelineMetrics::commEventCounts($events),
             'redundant_count' => TimelineMetrics::redundantCount($events),
+            'alignment' => TimelineMetrics::alignmentCounts($events),
         ];
     }
 }
