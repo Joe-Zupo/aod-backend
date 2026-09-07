@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 /**
  * A cluster of one or more Team Keyword hits in a single player's transcript,
@@ -48,5 +49,15 @@ class CommEvent extends Model
     public function calloutDetections(): HasMany
     {
         return $this->hasMany(CalloutDetection::class)->orderBy('start_ms');
+    }
+
+    /**
+     * System (and later human) annotations attached to this callout. Today the
+     * only writer is AssessGameStateAlignment (see
+     * docs/adr/0008-game-state-alignment.md).
+     */
+    public function annotations(): MorphMany
+    {
+        return $this->morphMany(Annotation::class, 'annotatable');
     }
 }
