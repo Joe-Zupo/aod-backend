@@ -1,9 +1,11 @@
 <?php
 
+use App\Http\Controllers\AnnotationController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\SessionController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TeamSettingsController;
+use App\Http\Controllers\TimestampController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
@@ -48,6 +50,22 @@ Route::middleware('auth:sanctum')->group(function () {
     // `cancelled` | `reanalyze` | `analysis_ready` | `timeline_ready`. start and
     // complete are separate (ADR 0010).
     Route::post('/sessions/{session}/transitions', [SessionController::class, 'transition']);
+
+    // Timeline management (docs/adr/0010-timeline-management.md). `{type}` is
+    // one of communication_event | game_event | dead_air.
+    Route::post('/sessions/{session}/timestamps', [TimestampController::class, 'store']);
+    Route::post('/sessions/{session}/timestamps/review-all', [TimestampController::class, 'reviewAll']);
+    Route::put('/sessions/{session}/timestamps/{type}/{id}/review', [TimestampController::class, 'review'])
+        ->whereIn('type', ['communication_event', 'game_event', 'dead_air']);
+    Route::put('/sessions/{session}/timestamps/{type}/{id}', [TimestampController::class, 'update'])
+        ->whereIn('type', ['communication_event', 'game_event', 'dead_air']);
+    Route::delete('/sessions/{session}/timestamps/{type}/{id}', [TimestampController::class, 'destroy'])
+        ->whereIn('type', ['communication_event', 'game_event', 'dead_air']);
+    Route::post('/sessions/{session}/timestamps/{type}/{id}/annotations', [AnnotationController::class, 'store'])
+        ->whereIn('type', ['communication_event', 'game_event', 'dead_air']);
+    Route::put('/annotations/{annotation}', [AnnotationController::class, 'update']);
+    Route::delete('/annotations/{annotation}', [AnnotationController::class, 'destroy']);
+    Route::post('/annotations/{annotation}/replies', [AnnotationController::class, 'reply']);
     Route::post('/sessions/{session}/join', [SessionController::class, 'join']);
     Route::post('/sessions/{session}/consent', [SessionController::class, 'consent']);
     Route::post('/sessions/{session}/start', [SessionController::class, 'start']);
