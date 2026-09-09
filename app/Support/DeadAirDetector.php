@@ -73,11 +73,8 @@ class DeadAirDetector
 
         $phrases = array_map(function (array $event) use ($periodStartMs) {
             $offset = (int) $event['match_time_ms'] - $periodStartMs;
-            $when = $offset < 1000
-                ? "{$offset} ms in"
-                : GameEventNarrator::seconds($offset).'s in';
 
-            return GameEventNarrator::clause($event).' '.$when;
+            return GameEventNarrator::clause($event).' '.GameEventNarrator::magnitude($offset).' in';
         }, $interiorEvents);
 
         return "{$duration}s of team silence; ".GameEventNarrator::list($phrases)

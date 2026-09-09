@@ -279,10 +279,6 @@ class GameStateAlignmentAssessor
             return 'during the callout';
         }
 
-        $magnitude = abs($signedMs) < 1000
-            ? abs($signedMs).' ms'
-            : GameEventNarrator::seconds(abs($signedMs)).'s';
-
-        return $magnitude.($signedMs > 0 ? ' later' : ' earlier');
+        return GameEventNarrator::magnitude(abs($signedMs)).($signedMs > 0 ? ' later' : ' earlier');
     }
 }

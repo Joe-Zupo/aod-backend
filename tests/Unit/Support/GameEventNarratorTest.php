@@ -37,6 +37,15 @@ class GameEventNarratorTest extends TestCase
         $this->assertSame('0', GameEventNarrator::seconds(0));
     }
 
+    public function test_magnitude_is_ms_under_a_second_and_trimmed_seconds_above(): void
+    {
+        $this->assertSame('400 ms', GameEventNarrator::magnitude(400));
+        $this->assertSame('999 ms', GameEventNarrator::magnitude(999));
+        $this->assertSame('1s', GameEventNarrator::magnitude(1000));
+        $this->assertSame('1.1s', GameEventNarrator::magnitude(1100));
+        $this->assertSame('5s', GameEventNarrator::magnitude(5000));
+    }
+
     public function test_actor_name_prefers_the_note_then_a_raw_key_then_null(): void
     {
         $this->assertSame('Jett', GameEventNarrator::actorName($this->event(['note' => '  Jett  '])));

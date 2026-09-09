@@ -8,13 +8,7 @@ use App\Models\GameEvent;
 use App\Models\Session;
 use App\Models\TeamSettings;
 use App\Support\GameStateAlignmentAssessor;
-use Illuminate\Bus\Queueable;
-use Illuminate\Contracts\Queue\ShouldQueue;
-use Illuminate\Foundation\Bus\Dispatchable;
-use Illuminate\Queue\InteractsWithQueue;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
-use Throwable;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * One pass over a session: for every communication event whose keyword makes a
@@ -24,38 +18,23 @@ use Throwable;
  * docs/adr/0008-game-state-alignment.md and its 2026-09-07 amendment).
  *
  * Idempotent: deletes and rewrites this session's `game_state_alignment`
- * annotations, snapshots the window onto each row, sets the session marker, and
- * re-dispatches AdvanceSessionAfterProcessing so the fan-in can advance the
- * session to `timeline_ready`. Dispatched by AdvanceSessionAfterProcessing when
- * a processing session has game events and has not been assessed yet.
+ * annotations, snapshots the window onto each row, stamps
+ * `game_alignment_assessed_at`, and re-dispatches AdvanceSessionAfterProcessing.
+ * Dispatched by AdvanceSessionAfterProcessing when a processing session has game
+ * events and has not been assessed yet. Lifecycle is in SessionDetectionPass.
  */
-class AssessGameStateAlignment implements ShouldQueue
+class AssessGameStateAlignment extends SessionDetectionPass
 {
-    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
-
-    public function __construct(public Session $session) {}
-
-    public function tries(): int
+    protected function marker(): string
     {
-        return (int) config('services.assemblyai.job_tries');
+        return 'game_alignment_assessed_at';
     }
 
     /**
-     * @return list<int>
+     * @return array{windowMs: int, gameEvents: list<array<string, mixed>>, commEvents: Collection<int, CommEvent>}
      */
-    public function backoff(): array
+    protected function gather(Session $session): array
     {
-        return [10, 30, 60];
-    }
-
-    public function handle(): void
-    {
-        $session = $this->session->fresh();
-
-        if (! $session || $session->status !== Session::STATUS_PROCESSING) {
-            return;
-        }
-
         $windowMs = (int) $session->team->ensureSettings()
             ->get(TeamSettings::SETTING_GAME_ALIGNMENT_WINDOW)
             ->setting_parameter;
@@ -76,79 +55,48 @@ class AssessGameStateAlignment implements ShouldQueue
             ->with('calloutDetections')
             ->get();
 
-        DB::transaction(function () use ($session, $commEvents, $gameEvents, $windowMs) {
-            // Re-read the marker under the session lock: the fan-in can dispatch
-            // this job more than once when transcripts finish close together, and
-            // a second run must not rewrite the rows a first one already wrote.
-            $locked = Session::whereKey($session->getKey())
-                ->lockForUpdate()
-                ->first(['id', 'game_alignment_assessed_at']);
-
-            if (! $locked || $locked->game_alignment_assessed_at !== null) {
-                return;
-            }
-
-            Annotation::query()
-                ->where('topic', Annotation::TOPIC_GAME_STATE_ALIGNMENT)
-                ->where('annotatable_type', (new CommEvent)->getMorphClass())
-                ->whereIn('annotatable_id', $commEvents->modelKeys())
-                ->delete();
-
-            foreach ($commEvents as $commEvent) {
-                $keywords = $commEvent->calloutDetections
-                    ->sortBy('start_ms')
-                    ->pluck('normalized_keyword')
-                    ->all();
-
-                $result = GameStateAlignmentAssessor::assess(
-                    (int) $commEvent->start_ms,
-                    (int) $commEvent->end_ms,
-                    $keywords,
-                    $gameEvents,
-                    $windowMs,
-                );
-
-                if ($result === null) {
-                    continue;
-                }
-
-                $commEvent->annotations()->create([
-                    'user_id' => null,
-                    'topic' => Annotation::TOPIC_GAME_STATE_ALIGNMENT,
-                    'assessment' => $result['assessment'],
-                    'body' => $result['body'],
-                    'game_event_ids' => $result['game_event_ids'],
-                    'alignment_window_ms' => $windowMs,
-                ]);
-            }
-
-            $session->forceFill(['game_alignment_assessed_at' => now()])->save();
-        });
-
-        AdvanceSessionAfterProcessing::dispatch($session);
+        return ['windowMs' => $windowMs, 'gameEvents' => $gameEvents, 'commEvents' => $commEvents];
     }
 
     /**
-     * A permanent assessment failure must not strand the session in `processing`:
-     * the fan-in holds a game-event session at this gate until the marker is set,
-     * and `reanalyze()` needs `timeline_ready`, so nothing would ever retry.
-     * Degrade to an unassessed timeline instead — set the marker with no
-     * annotations and let the fan-in advance, the same "one dead mic never
-     * freezes the review" call DetectCommEvents makes for its own stage (see
-     * docs/adr/0008-game-state-alignment.md).
+     * @param  array{windowMs: int, gameEvents: list<array<string, mixed>>, commEvents: Collection<int, CommEvent>}  $gathered
      */
-    public function failed(Throwable $e): void
+    protected function write(Session $session, array $gathered): void
     {
-        $session = $this->session->fresh();
+        ['windowMs' => $windowMs, 'gameEvents' => $gameEvents, 'commEvents' => $commEvents] = $gathered;
 
-        if (! $session || $session->status !== Session::STATUS_PROCESSING) {
-            return;
+        Annotation::query()
+            ->where('topic', Annotation::TOPIC_GAME_STATE_ALIGNMENT)
+            ->where('annotatable_type', (new CommEvent)->getMorphClass())
+            ->whereIn('annotatable_id', $commEvents->modelKeys())
+            ->delete();
+
+        foreach ($commEvents as $commEvent) {
+            $keywords = $commEvent->calloutDetections
+                ->sortBy('start_ms')
+                ->pluck('normalized_keyword')
+                ->all();
+
+            $result = GameStateAlignmentAssessor::assess(
+                (int) $commEvent->start_ms,
+                (int) $commEvent->end_ms,
+                $keywords,
+                $gameEvents,
+                $windowMs,
+            );
+
+            if ($result === null) {
+                continue;
+            }
+
+            $commEvent->annotations()->create([
+                'user_id' => null,
+                'topic' => Annotation::TOPIC_GAME_STATE_ALIGNMENT,
+                'assessment' => $result['assessment'],
+                'body' => $result['body'],
+                'game_event_ids' => $result['game_event_ids'],
+                'alignment_window_ms' => $windowMs,
+            ]);
         }
-
-        if ($session->game_alignment_assessed_at === null) {
-            $session->forceFill(['game_alignment_assessed_at' => now()])->save();
-        }
-
-        AdvanceSessionAfterProcessing::dispatch($session);
     }
 }

@@ -36,6 +36,16 @@ class GameEventNarrator
     }
 
     /**
+     * A duration for a body: milliseconds under a second, otherwise seconds.
+     * 400 -> "400 ms", 1100 -> "1.1s", 5000 -> "5s". Each caller appends its own
+     * direction word ("later", "earlier", "in").
+     */
+    public static function magnitude(int $ms): string
+    {
+        return $ms < 1000 ? "{$ms} ms" : self::seconds($ms).'s';
+    }
+
+    /**
      * The player behind a kill / death: `note` if it carries one, else a
      * name-ish key on the preserved `raw` payload, else null when the feed
      * named nobody (ADR 0008, 2026-09-07 amendment).
