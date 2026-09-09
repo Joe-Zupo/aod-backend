@@ -142,25 +142,16 @@ class TimelineMetrics
             return [0, 0, 0];
         }
 
-        $intervals = $events
+        $clamped = $events
             ->map(fn ($event) => [
                 max(0, (int) $event->start_ms),
                 min($windowMs, (int) $event->end_ms),
             ])
             ->filter(fn (array $span) => $span[1] > $span[0])
-            ->sortBy(0)
-            ->values();
+            ->values()
+            ->all();
 
-        $merged = [];
-        foreach ($intervals as [$start, $end]) {
-            if ($merged !== [] && $start <= $merged[count($merged) - 1][1]) {
-                $merged[count($merged) - 1][1] = max($merged[count($merged) - 1][1], $end);
-
-                continue;
-            }
-
-            $merged[] = [$start, $end];
-        }
+        $merged = Intervals::merge($clamped);
 
         $totalTalk = array_sum(array_map(fn (array $span) => $span[1] - $span[0], $merged));
 
