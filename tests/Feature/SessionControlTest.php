@@ -238,7 +238,7 @@ class SessionControlTest extends TestCase
         $this->addParticipant($session, $coach, 'main_coach');
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertOk()
             ->assertJsonPath('data.session.status', 'cancelled');
 
@@ -255,7 +255,7 @@ class SessionControlTest extends TestCase
         $this->addParticipant($session, $coach, 'main_coach');
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertStatus(422)
             ->assertJsonPath('message', 'This session can no longer be cancelled.');
 
@@ -272,7 +272,7 @@ class SessionControlTest extends TestCase
         $this->addParticipant($session, $coach, 'main_coach');
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertStatus(422)
             ->assertJsonPath('message', 'This session can no longer be cancelled.');
 
@@ -291,7 +291,7 @@ class SessionControlTest extends TestCase
         $this->addParticipant($session, $player, 'player');
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertOk()
             ->assertJsonPath('data.session.status', 'cancelled');
 
@@ -309,7 +309,7 @@ class SessionControlTest extends TestCase
         $this->addParticipant($session, $mainCoach, 'main_coach');
 
         $this->actingAs($assistant, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertOk()
             ->assertJsonPath('data.session.status', 'cancelled');
     }
@@ -322,7 +322,7 @@ class SessionControlTest extends TestCase
         $this->addParticipant($session, $coach, 'main_coach');
 
         $this->actingAs($player, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertForbidden();
 
         $this->assertDatabaseHas('app_sessions', [
@@ -343,7 +343,7 @@ class SessionControlTest extends TestCase
         $this->attachActiveMember($otherTeam, $otherCoach, 'main_coach', $otherCoach);
 
         $this->actingAs($otherCoach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertNotFound();
 
         $this->assertDatabaseHas('app_sessions', [
@@ -357,7 +357,7 @@ class SessionControlTest extends TestCase
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
         $session = $this->createSession($team, $coach, 'queuing');
 
-        $this->postJson("/api/sessions/{$session->id}/cancel")
+        $this->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertUnauthorized();
     }
 
@@ -417,7 +417,7 @@ class SessionControlTest extends TestCase
         $this->addParticipant($session, $player, 'player');
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertOk();
 
         $this->assertDatabaseMissing('session_participants', [
@@ -437,7 +437,7 @@ class SessionControlTest extends TestCase
         $originalLeftAt = $earlyLeaver->fresh()->left_at;
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertOk();
 
         $this->assertSame(

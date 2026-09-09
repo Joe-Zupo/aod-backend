@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Reviewable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,19 +17,23 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  */
 class DeadAirPeriod extends Model
 {
-    use HasFactory;
+    use HasFactory, Reviewable;
 
     protected $fillable = [
         'session_id',
         'start_ms',
         'end_ms',
         'dead_air_threshold_ms',
+        'reviewed_at',
+        'reviewed_by',
+        'created_by',
     ];
 
     protected $casts = [
         'start_ms' => 'integer',
         'end_ms' => 'integer',
         'dead_air_threshold_ms' => 'integer',
+        'reviewed_at' => 'datetime',
     ];
 
     public function session(): BelongsTo

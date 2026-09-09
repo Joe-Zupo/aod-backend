@@ -100,7 +100,7 @@ class SessionReanalyzeTest extends TestCase
         ]);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/reanalyze")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'reanalyze'])
             ->assertStatus(202)
             ->assertJsonPath('data.session.status', Session::STATUS_TIMELINE_READY);
 
@@ -125,7 +125,7 @@ class SessionReanalyzeTest extends TestCase
             ->delete();
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/reanalyze")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'reanalyze'])
             ->assertStatus(202);
 
         $this->assertSame(0, CommEvent::where('transcript_id', $transcript->id)->count());
@@ -148,7 +148,7 @@ class SessionReanalyzeTest extends TestCase
         Transcript::factory()->for(AodRecord::factory()->for($other)->create())->failed()->create();
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/reanalyze")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'reanalyze'])
             ->assertStatus(202)
             ->assertJsonPath('data.session.status', Session::STATUS_PROCESSING);
 
@@ -163,7 +163,7 @@ class SessionReanalyzeTest extends TestCase
         $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
 
         $this->actingAs($player, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/reanalyze")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'reanalyze'])
             ->assertForbidden();
     }
 
@@ -173,7 +173,7 @@ class SessionReanalyzeTest extends TestCase
         $outsider = User::factory()->create();
 
         $this->actingAs($outsider, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/reanalyze")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'reanalyze'])
             ->assertNotFound();
     }
 
@@ -185,7 +185,7 @@ class SessionReanalyzeTest extends TestCase
             $session = $this->createSession($team, $coach, $status);
 
             $this->actingAs($coach, 'sanctum')
-                ->postJson("/api/sessions/{$session->id}/reanalyze")
+                ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'reanalyze'])
                 ->assertStatus(422);
         }
     }
@@ -205,7 +205,7 @@ class SessionReanalyzeTest extends TestCase
         Transcript::factory()->for(AodRecord::factory()->for($player)->create())->failed()->create();
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/reanalyze")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'reanalyze'])
             ->assertStatus(422);
 
         $this->assertSame(Session::STATUS_TIMELINE_READY, $session->fresh()->status);

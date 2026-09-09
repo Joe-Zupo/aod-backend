@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\Reviewable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -16,13 +17,15 @@ use Illuminate\Database\Eloquent\Relations\MorphMany;
  */
 class CommEvent extends Model
 {
-    use HasFactory;
+    use HasFactory, Reviewable;
 
     public const TYPE_INFORMATIVE = 'informative';
 
     public const TYPE_DECLARATIVE = 'declarative';
 
     public const TYPE_COMPOUND = 'compound';
+
+    public const TYPES = [self::TYPE_INFORMATIVE, self::TYPE_DECLARATIVE, self::TYPE_COMPOUND];
 
     protected $fillable = [
         'transcript_id',
@@ -32,6 +35,9 @@ class CommEvent extends Model
         'end_ms',
         'content',
         'padding_ms',
+        'reviewed_at',
+        'reviewed_by',
+        'created_by',
     ];
 
     protected $casts = [
@@ -39,6 +45,7 @@ class CommEvent extends Model
         'start_ms' => 'integer',
         'end_ms' => 'integer',
         'padding_ms' => 'integer',
+        'reviewed_at' => 'datetime',
     ];
 
     public function transcript(): BelongsTo

@@ -140,7 +140,7 @@ class SessionController extends Controller
      */
     public function timeline(Request $request, Session $session): JsonResponse
     {
-        $this->authorize('view', $session);
+        $this->authorize('viewTimeline', $session);
 
         $this->assertReadable($session);
 
@@ -176,7 +176,7 @@ class SessionController extends Controller
      */
     public function timelineSummary(Request $request, Session $session): JsonResponse
     {
-        $this->authorize('view', $session);
+        $this->authorize('viewTimeline', $session);
 
         $this->assertReadable($session);
 
@@ -199,30 +199,48 @@ class SessionController extends Controller
     }
 
     /**
-     * Re-analyze Session
+     * Transition Session
      *
-     * Rebuild the session's timeline from its stored recordings using the
-     * team's current keyword and Communication Event Padding settings — for a
-     * coach who re-tuned them after the first analysis. No files are
-     * re-uploaded and transcription is not re-run. Moves the session back to
-     * `processing` and returns 202; it re-opens at `timeline_ready` once
-     * detection finishes. Restricted to any active Coach on the session's team.
-     * Rejected with 422 unless the session already has a ready timeline built
-     * from at least one transcribed recording.
+     * A coach-driven state move that carries no payload. `to` names the move:
+     *
+     * - `cancelled` — abort the session (from `queuing` or `in_progress`).
+     * - `reanalyze` — rebuild the timeline from the stored recordings using the
+     *   team's current settings; returns 202 and re-opens at `timeline_ready`
+     *   once detection finishes. Discards all timeline-management work.
+     * - `analysis_ready` — open the reviewed timeline to players (from
+     *   `timeline_ready`, once every timestamp is reviewed).
+     * - `timeline_ready` — reopen review (from `analysis_ready`).
+     *
+     * `start` and `complete` are their own endpoints. Any active Coach; whether
+     * the move is legal from the session's current status is the model's guard,
+     * surfaced as 422. See docs/adr/0010-timeline-management.md.
      */
-    public function reanalyze(Request $request, Session $session): JsonResponse
+    public function transition(Request $request, Session $session): JsonResponse
     {
-        $this->authorize('reanalyze', $session);
+        $this->authorize('transition', $session);
+
+        if ($request->input('to') === Session::STATUS_IN_PROGRESS) {
+            return $this->error('Use POST /sessions/{session}/start to begin recording.', 422);
+        }
+
+        $to = $request->validate([
+            'to' => ['required', Rule::in(Session::TRANSITIONS)],
+        ])['to'];
 
         try {
-            $session->reanalyze();
+            match ($to) {
+                Session::STATUS_CANCELLED => $session->cancel(),
+                Session::TRANSITION_REANALYZE => $session->reanalyze(),
+                Session::STATUS_ANALYSIS_READY => $session->markAnalysisReady(),
+                Session::STATUS_TIMELINE_READY => $session->reopenReview(),
+            };
         } catch (SessionTransitionException $e) {
             return $this->error($e->getMessage(), 422);
         }
 
-        return $this->success('Session re-analysis started.', [
+        return $this->success('Session transition applied.', [
             'session' => new SessionResource($session->fresh()->load('activeParticipants.user')),
-        ], 202);
+        ], $to === Session::TRANSITION_REANALYZE ? 202 : 200);
     }
 
     /**
@@ -292,27 +310,6 @@ class SessionController extends Controller
         }
 
         return $this->success('Session started.', [
-            'session' => new SessionResource($session->load('activeParticipants.user')),
-        ]);
-    }
-
-    /**
-     * Cancel Session
-     *
-     * Transition a queuing or in_progress session to cancelled. Restricted to
-     * any active Coach on the session's team, not just its creator.
-     */
-    public function cancel(Request $request, Session $session): JsonResponse
-    {
-        $this->authorize('cancel', $session);
-
-        try {
-            $session->cancel();
-        } catch (SessionTransitionException $e) {
-            return $this->error($e->getMessage(), 422);
-        }
-
-        return $this->success('Session cancelled.', [
             'session' => new SessionResource($session->load('activeParticipants.user')),
         ]);
     }

@@ -55,6 +55,39 @@ class Session extends Model
      */
     public const STATUS_TIMELINE_READY = 'timeline_ready';
 
+    /**
+     * A coach has reviewed every timestamp and signed the timeline off. Only
+     * now does the timeline read surface open to players; before this a
+     * non-coach gets a 403 on the timeline endpoints (see
+     * docs/adr/0010-timeline-management.md).
+     */
+    public const STATUS_ANALYSIS_READY = 'analysis_ready';
+
+    /**
+     * The read states in which the timeline endpoints serve any active team
+     * member. `timeline_ready` is deliberately not among them: there the
+     * timeline is coach-only, under review.
+     */
+    public const TIMELINE_VISIBLE_STATUSES = [self::STATUS_ANALYSIS_READY];
+
+    /**
+     * The `to` value on `POST /sessions/{session}/transitions` that rebuilds the
+     * timeline. Not a status (the rebuild lands in `processing`), so it is
+     * named as the action.
+     */
+    public const TRANSITION_REANALYZE = 'reanalyze';
+
+    /**
+     * Every accepted `to` value on the transitions endpoint: three target
+     * statuses plus the `reanalyze` action.
+     */
+    public const TRANSITIONS = [
+        self::STATUS_CANCELLED,
+        self::TRANSITION_REANALYZE,
+        self::STATUS_ANALYSIS_READY,
+        self::STATUS_TIMELINE_READY,
+    ];
+
     public const STATUS_CANCELLED = 'cancelled';
 
     /**
@@ -461,7 +494,7 @@ class Session extends Model
         $transcripts = DB::transaction(function () {
             $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
 
-            if ($status !== self::STATUS_TIMELINE_READY) {
+            if (! in_array($status, [self::STATUS_TIMELINE_READY, self::STATUS_ANALYSIS_READY], true)) {
                 throw new SessionTransitionException('Only a session with a ready timeline can be re-analyzed.');
             }
 
@@ -478,6 +511,10 @@ class Session extends Model
             // status move, so no AdvanceSessionAfterProcessing run can see a
             // processing session with every transcript still marked done.
             Transcript::whereKey($completed->modelKeys())->update(['comm_events_detected' => false]);
+
+            // Timeline management is discarded first: a re-analysis rebuilds the
+            // machine's view, so the coach's review starts over (ADR 0010).
+            $this->discardTimelineManagement();
 
             // Drop game-state alignment too: its rows hang off comm events
             // DetectCommEvents is about to rebuild, and its marker must be null
@@ -517,6 +554,131 @@ class Session extends Model
         foreach ($transcripts as $transcript) {
             DetectCommEvents::dispatch($transcript);
         }
+    }
+
+    /**
+     * A query for every communication event in this session, across all its
+     * transcripts. Session -> comm_events is two hops, so this is a subquery,
+     * not an Eloquent relation, matching transcriptsQuery().
+     */
+    public function commEventsQuery(): Builder
+    {
+        return CommEvent::query()->whereIn('transcript_id', $this->transcriptsQuery()->select('id'));
+    }
+
+    /**
+     * Reviewed / total tallies over every timestamp in the session (all three
+     * kinds, system and coach-created). `total == reviewed` (including the
+     * zero-timestamp case) is the gate for `analysis_ready` (ADR 0010).
+     *
+     * @return array{reviewed: int, total: int}
+     */
+    public function reviewCounts(): array
+    {
+        $reviewed = (clone $this->commEventsQuery())->reviewed()->count()
+            + $this->gameEvents()->reviewed()->count()
+            + $this->deadAirPeriods()->reviewed()->count();
+
+        $total = $this->commEventsQuery()->count()
+            + $this->gameEvents()->count()
+            + $this->deadAirPeriods()->count();
+
+        return ['reviewed' => $reviewed, 'total' => $total];
+    }
+
+    public function allTimestampsReviewed(): bool
+    {
+        $counts = $this->reviewCounts();
+
+        return $counts['reviewed'] === $counts['total'];
+    }
+
+    /**
+     * The session window in milliseconds: the longest completed transcript
+     * under the zero-offset assumption. The upper bound for any timestamp span
+     * (see docs/adr/0010-timeline-management.md); 0 when nothing is transcribed.
+     */
+    public function windowMs(): int
+    {
+        return (int) $this->transcriptsQuery()
+            ->where('status', Transcript::STATUS_COMPLETED)
+            ->max('audio_duration_ms');
+    }
+
+    /**
+     * timeline_ready -> analysis_ready. The read surface opens to players only
+     * here. Every timestamp must be reviewed first (ADR 0010).
+     *
+     * @throws SessionTransitionException
+     */
+    public function markAnalysisReady(): void
+    {
+        DB::transaction(function () {
+            $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
+
+            if ($status !== self::STATUS_TIMELINE_READY) {
+                throw new SessionTransitionException('Only a session under review can be marked analysis-ready.');
+            }
+
+            if (! $this->allTimestampsReviewed()) {
+                $counts = $this->reviewCounts();
+                $outstanding = $counts['total'] - $counts['reviewed'];
+
+                throw new SessionTransitionException("{$outstanding} timestamp(s) still need review.");
+            }
+
+            $this->update(['status' => self::STATUS_ANALYSIS_READY]);
+
+            Broadcasting::safely(new SessionStatusChanged($this));
+        });
+    }
+
+    /**
+     * analysis_ready -> timeline_ready. Unconditional; existing review stamps
+     * are kept, so the coach only has to re-review what they touch (ADR 0010).
+     *
+     * @throws SessionTransitionException
+     */
+    public function reopenReview(): void
+    {
+        DB::transaction(function () {
+            $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
+
+            if ($status !== self::STATUS_ANALYSIS_READY) {
+                throw new SessionTransitionException('Only an analysis-ready session can be reopened for review.');
+            }
+
+            $this->update(['status' => self::STATUS_TIMELINE_READY]);
+
+            Broadcasting::safely(new SessionStatusChanged($this));
+        });
+    }
+
+    /**
+     * Wipe every timeline-management artifact for this session: coach notes and
+     * every reply on its timestamps, coach-created communication events and game
+     * events, and every review stamp. Called at the top of reanalyze() (ADR
+     * 0010). Dead-air periods are deleted wholesale by reanalyze() itself.
+     */
+    private function discardTimelineManagement(): void
+    {
+        foreach ([
+            [(new CommEvent)->getMorphClass(), $this->commEventsQuery()->select('id')],
+            [(new GameEvent)->getMorphClass(), $this->gameEvents()->select('id')],
+            [(new DeadAirPeriod)->getMorphClass(), $this->deadAirPeriods()->select('id')],
+        ] as [$morph, $ids]) {
+            Annotation::query()
+                ->whereIn('topic', Annotation::HUMAN_TOPICS)
+                ->where('annotatable_type', $morph)
+                ->whereIn('annotatable_id', $ids)
+                ->delete();
+        }
+
+        (clone $this->commEventsQuery())->whereNotNull('created_by')->delete();
+        $this->gameEvents()->whereNotNull('created_by')->delete();
+
+        (clone $this->commEventsQuery())->update(['reviewed_at' => null, 'reviewed_by' => null]);
+        $this->gameEvents()->update(['reviewed_at' => null, 'reviewed_by' => null]);
     }
 
     /**

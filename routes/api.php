@@ -43,11 +43,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/sessions/{session}/captions', [SessionController::class, 'captions']);
     Route::get('/sessions/{session}/timeline', [SessionController::class, 'timeline']);
     Route::get('/sessions/{session}/timeline-summary', [SessionController::class, 'timelineSummary']);
-    Route::post('/sessions/{session}/reanalyze', [SessionController::class, 'reanalyze']);
+
+    // One endpoint for every coach-driven, bodiless state move; `to` is
+    // `cancelled` | `reanalyze` | `analysis_ready` | `timeline_ready`. start and
+    // complete are separate (ADR 0010).
+    Route::post('/sessions/{session}/transitions', [SessionController::class, 'transition']);
     Route::post('/sessions/{session}/join', [SessionController::class, 'join']);
     Route::post('/sessions/{session}/consent', [SessionController::class, 'consent']);
     Route::post('/sessions/{session}/start', [SessionController::class, 'start']);
-    Route::post('/sessions/{session}/cancel', [SessionController::class, 'cancel']);
     Route::post('/sessions/{session}/complete', [SessionController::class, 'complete']);
 
 });

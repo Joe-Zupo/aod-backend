@@ -234,7 +234,7 @@ class SessionBroadcastingTest extends TestCase
         Event::fake([SessionParticipantJoined::class, SessionParticipantLeft::class]);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertOk();
 
         Event::assertDispatched(SessionParticipantLeft::class, 2);
@@ -251,7 +251,7 @@ class SessionBroadcastingTest extends TestCase
         Event::fake([SessionParticipantJoined::class, SessionParticipantLeft::class]);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertOk();
 
         Event::assertDispatched(SessionParticipantLeft::class, 1);
@@ -300,7 +300,7 @@ class SessionBroadcastingTest extends TestCase
         $this->addParticipant($session, $coach, 'main_coach');
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/cancel")
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
             ->assertOk();
 
         Event::assertDispatched(
