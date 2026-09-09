@@ -4,6 +4,10 @@
 > surface as `type: "game_event"` timestamps in `session_timeline`.
 > Amended by ADR 0008: an `annotations` table arrives; `AdvanceSessionAfterProcessing`
 > also waits on game-state alignment when a session has game events.
+> Amended by ADR 0009: dead-air detection adds a second `AdvanceSessionAfterProcessing`
+> gate for every session; the `timeline_summary` silence proxy named provisional
+> here is now shadowed by real `dead_air` periods, and its retirement is a
+> follow-up.
 
 ADR 0004 deferred the design of `comm_events` and left a completed session in
 `processing` with no coded exit. This milestone builds keyword-based
