@@ -149,10 +149,10 @@ class SessionController extends Controller
             'participants' => fn ($query) => $query->orderBy('id'),
             'participants.user',
             'participants.aodRecord.transcript.commEvents.calloutDetections',
-            'participants.aodRecord.transcript.commEvents.annotations',
+            'participants.aodRecord.transcript.commEvents.annotations.author',
             'participants.vodRecord',
-            'gameEvents',
-            'deadAirPeriods.annotations',
+            'gameEvents.annotations.author',
+            'deadAirPeriods.annotations.author',
         ]);
 
         // Envelope spelled out rather than routed through success() so Scramble

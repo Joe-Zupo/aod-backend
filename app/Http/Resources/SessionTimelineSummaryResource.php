@@ -3,6 +3,7 @@
 namespace App\Http\Resources;
 
 use App\Models\Session;
+use App\Models\User;
 use App\Support\TimelineMetrics;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -36,9 +37,30 @@ class SessionTimelineSummaryResource extends JsonResource
         // percentages of the window (see the *_percentage fields below).
         [$totalTalkMs, $totalSilenceMs, $longestSilenceMs] = TimelineMetrics::silenceProxy($allEvents, $windowMs);
 
-        // Stash the shared window on each participant so the per-player scope
-        // resource can read it through a standard constructor.
-        $recording->each->setAttribute('summary_window_ms', $windowMs);
+        // The review progress figure is coach-only, and only while the timeline
+        // is still under review (at analysis_ready it is 100% by definition).
+        $showReview = $this->status === Session::STATUS_TIMELINE_READY
+            && ($user = $request->user()) !== null
+            && in_array($user->teamRole($this->team), User::TEAM_COACH_ROLES, true);
+
+        // Stash the shared window (and whether to show review) on each
+        // participant so the per-player scope resource can read them through a
+        // standard constructor.
+        $recording->each(function ($participant) use ($windowMs, $showReview) {
+            $participant->setAttribute('summary_window_ms', $windowMs);
+            $participant->setAttribute('summary_show_review', $showReview);
+        });
+
+        $teamReview = [];
+
+        if ($showReview) {
+            $counts = $this->resource->reviewCounts();
+            $teamReview = ['review' => [
+                'reviewed' => $counts['reviewed'],
+                'total' => $counts['total'],
+                'complete' => $counts['reviewed'] === $counts['total'],
+            ]];
+        }
 
         return [
             'session_id' => $this->id,
@@ -62,6 +84,7 @@ class SessionTimelineSummaryResource extends JsonResource
                 'talk_percentage' => TimelineMetrics::percentageOfWindow($totalTalkMs, $windowMs),
                 'silence_percentage' => TimelineMetrics::percentageOfWindow($totalSilenceMs, $windowMs),
                 'longest_silence_percentage' => TimelineMetrics::percentageOfWindow($longestSilenceMs, $windowMs),
+                ...$teamReview,
             ],
             'participants' => TimelineSummaryParticipantResource::collection($recording->values()),
         ];

@@ -23,6 +23,13 @@ class TimelineSummaryParticipantResource extends JsonResource
         $events = $this->aodRecord->transcript->commEvents;
         $windowMs = (int) $this->summary_window_ms;
 
+        $review = [];
+
+        if ($this->summary_show_review) {
+            $reviewed = $events->whereNotNull('reviewed_at')->count();
+            $review = ['review' => ['reviewed' => $reviewed, 'total' => $events->count()]];
+        }
+
         return [
             'participant_id' => $this->id,
             'user_id' => $this->user_id,
@@ -31,6 +38,7 @@ class TimelineSummaryParticipantResource extends JsonResource
             'comm_event_count' => TimelineMetrics::commEventCounts($events),
             'redundant_count' => TimelineMetrics::redundantCount($events),
             'alignment' => TimelineMetrics::alignmentCounts($events),
+            ...$review,
         ];
     }
 }

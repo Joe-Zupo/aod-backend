@@ -5,6 +5,7 @@ namespace App\Http\Resources;
 use App\Models\DeadAirPeriod;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Collection;
 
 /**
  * One dead-air period on the session timeline: an interval, so it carries real
@@ -26,10 +27,12 @@ class DeadAirTimestampResource extends JsonResource
             'start_ms' => $this->start_ms,
             'end_ms' => $this->end_ms,
             'duration_ms' => $this->end_ms - $this->start_ms,
-            'annotations' => $this->whenLoaded(
-                'annotations',
-                fn () => TimelineAnnotationResource::collection($this->annotations),
-                [],
+            'reviewed' => $this->reviewed_at !== null,
+            'reviewed_at' => $this->reviewed_at,
+            'reviewed_by' => $this->reviewed_by,
+            'created_by' => $this->created_by,
+            'annotations' => TimelineAnnotationResource::tree(
+                $this->whenLoaded('annotations', fn () => $this->annotations, new Collection),
             ),
         ];
     }

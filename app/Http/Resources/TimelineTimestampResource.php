@@ -5,6 +5,7 @@ namespace App\Http\Resources;
 use App\Models\CommEvent;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Collection;
 
 /**
  * One entry on a participant's timeline. Currently every timestamp is a
@@ -27,11 +28,13 @@ class TimelineTimestampResource extends JsonResource
             'start_ms' => $this->start_ms,
             'end_ms' => $this->end_ms,
             'content' => $this->content,
+            'reviewed' => $this->reviewed_at !== null,
+            'reviewed_at' => $this->reviewed_at,
+            'reviewed_by' => $this->reviewed_by,
+            'created_by' => $this->created_by,
             'callouts' => CalloutDetectionResource::collection($this->whenLoaded('calloutDetections')),
-            'annotations' => $this->whenLoaded(
-                'annotations',
-                fn () => TimelineAnnotationResource::collection($this->annotations),
-                [],
+            'annotations' => TimelineAnnotationResource::tree(
+                $this->whenLoaded('annotations', fn () => $this->annotations, new Collection),
             ),
         ];
     }
