@@ -4,6 +4,7 @@ namespace Tests\Unit\Support;
 
 use App\Models\Annotation;
 use App\Models\CommEvent;
+use App\Models\DeadAirPeriod;
 use App\Models\GameEvent;
 use App\Support\TimelineMetrics;
 use Illuminate\Support\Collection;
@@ -136,6 +137,28 @@ class TimelineMetricsTest extends TestCase
         );
 
         return $event;
+    }
+
+    public function test_dead_air_counts_report_the_number_of_periods_and_the_longest(): void
+    {
+        $periods = collect([
+            new DeadAirPeriod(['start_ms' => 0, 'end_ms' => 8000]),
+            new DeadAirPeriod(['start_ms' => 20000, 'end_ms' => 32000]),
+            new DeadAirPeriod(['start_ms' => 50000, 'end_ms' => 55000]),
+        ]);
+
+        $this->assertSame(
+            ['count' => 3, 'longest_ms' => 12000],
+            TimelineMetrics::deadAirCounts($periods),
+        );
+    }
+
+    public function test_dead_air_counts_are_zero_without_periods(): void
+    {
+        $this->assertSame(
+            ['count' => 0, 'longest_ms' => 0],
+            TimelineMetrics::deadAirCounts(collect()),
+        );
     }
 
     public function test_percentage_of_window_is_zero_for_a_non_positive_window(): void

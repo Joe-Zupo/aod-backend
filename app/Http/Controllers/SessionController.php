@@ -152,6 +152,7 @@ class SessionController extends Controller
             'participants.aodRecord.transcript.commEvents.annotations',
             'participants.vodRecord',
             'gameEvents',
+            'deadAirPeriods.annotations',
         ]);
 
         // Envelope spelled out rather than routed through success() so Scramble
@@ -184,6 +185,7 @@ class SessionController extends Controller
             'participants.user',
             'participants.aodRecord.transcript.commEvents.annotations',
             'gameEvents',
+            'deadAirPeriods',
         ]);
 
         // Envelope spelled out rather than routed through success() so Scramble

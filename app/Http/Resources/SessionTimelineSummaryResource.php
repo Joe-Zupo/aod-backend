@@ -13,8 +13,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  * proxy expressed as percentages of the session window. All of it provisional
  * pending the Dead Air milestone (see docs/adr/0006-communication-events.md).
  *
- * Expects `participants.aodRecord.transcript.commEvents` and
- * `participants.user` loaded.
+ * Expects `participants.aodRecord.transcript.commEvents.annotations`,
+ * `participants.user`, `gameEvents` and `deadAirPeriods` loaded.
  *
  * @mixin Session
  */
@@ -53,6 +53,7 @@ class SessionTimelineSummaryResource extends JsonResource
                 'redundant_count' => TimelineMetrics::redundantCount($allEvents),
                 'game_events' => TimelineMetrics::gameEventCounts($this->gameEvents),
                 'alignment' => TimelineMetrics::alignmentCounts($allEvents),
+                'dead_air' => TimelineMetrics::deadAirCounts($this->deadAirPeriods),
                 // Percentages of the session window, via TimelineMetrics::percentageOfWindow:
                 //   talk_percentage            = total_talk_ms     / session_window, as a percent
                 //   silence_percentage         = total_silence_ms  / session_window, as a percent

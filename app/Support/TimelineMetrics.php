@@ -4,6 +4,7 @@ namespace App\Support;
 
 use App\Models\Annotation;
 use App\Models\CommEvent;
+use App\Models\DeadAirPeriod;
 use App\Models\GameEvent;
 use Illuminate\Support\Collection;
 
@@ -108,6 +109,22 @@ class TimelineMetrics
             'possibly_negative' => $negative,
             'neutral' => $neutral,
             'assessed_total' => $positive + $negative + $neutral,
+        ];
+    }
+
+    /**
+     * Dead-air tallies over a session's persisted periods: how many there are
+     * and the longest in milliseconds. Every period counts, annotated or not
+     * (see docs/adr/0009-dead-air-detection.md).
+     *
+     * @param  Collection<int, DeadAirPeriod>  $periods
+     * @return array{count: int, longest_ms: int}
+     */
+    public static function deadAirCounts($periods): array
+    {
+        return [
+            'count' => $periods->count(),
+            'longest_ms' => (int) ($periods->max(fn (DeadAirPeriod $period) => (int) $period->end_ms - (int) $period->start_ms) ?? 0),
         ];
     }
 
