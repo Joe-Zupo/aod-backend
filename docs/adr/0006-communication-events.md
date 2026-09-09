@@ -8,6 +8,12 @@
 > gate for every session; the `timeline_summary` silence proxy named provisional
 > here is now shadowed by real `dead_air` periods, and its retirement is a
 > follow-up.
+> Amended by ADR 0010: `timeline_ready` becomes coach-only (players get a 403 on
+> the timeline endpoints until `analysis_ready`); the three timestamp tables gain
+> review and authorship columns; no timestamps supertype is built. The
+> coach-driven bodiless transitions (`cancel`, re-analyze, analysis-ready,
+> reopen-review) collapse into one `POST /sessions/{session}/transitions`
+> carrying a target status; `start` and `complete` stay their own endpoints.
 
 ADR 0004 deferred the design of `comm_events` and left a completed session in
 `processing` with no coded exit. This milestone builds keyword-based

@@ -1,5 +1,9 @@
 # 8. Game-state alignment annotations for communication events
 
+> Amended by ADR 0010: `annotations` gains `parent_id` for one-level replies and
+> the `note` / `reply` topics; a human authors rows, so `user_id` is no
+> longer null on every row.
+
 With Communication Events (ADR 0006) and Game Events (ADR 0007) both on the
 Timeline, the framework's third axis can be produced: for each callout that makes
 a checkable game-state claim, does a nearby game event corroborate or contradict
@@ -26,7 +30,7 @@ player free-text later:
 
 Attach is `comm_event_id` only. A polymorphic or `game_event_id` attach is a
 follow-up for when game events carry annotations. `assessment` is nullable so a
-later `coach_note` annotation shares the table cleanly.
+later human-authored annotation shares the table cleanly.
 
 ### What gets assessed
 

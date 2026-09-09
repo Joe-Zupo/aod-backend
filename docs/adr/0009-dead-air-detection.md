@@ -3,6 +3,9 @@
 > Related: ADR 0006 deferred this as its own milestone. ADR 0008 built the
 > `annotations` table and the first `AdvanceSessionAfterProcessing` fan-in
 > clause; this ADR adds the second.
+> Amended by ADR 0010: the "an annotation never attaches to a game event" rule
+> is relaxed for hand-authored coach notes. The system still never annotates a
+> game event, so dead-air periods stay their own entity.
 
 ADR 0006 shipped a provisional silence proxy on `timeline_summary`
 (`talk_percentage`, `silence_percentage`, `longest_silence_percentage`),
