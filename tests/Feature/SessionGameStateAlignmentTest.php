@@ -119,6 +119,10 @@ class SessionGameStateAlignmentTest extends TestCase
 
     public function test_a_mapped_callout_with_a_favourable_corroborating_event_is_possibly_positive(): void
     {
+        // Fake the bus so the job's re-dispatched fan-in does not also run
+        // DetectDeadAir; these cases are about the alignment row alone.
+        Bus::fake();
+
         [, , $session, , $transcript] = $this->alignableSession(function (Transcript $t) {
             $this->commEventWithKeyword($t, 'planting', 20000, 21000);
         });
@@ -144,6 +148,8 @@ class SessionGameStateAlignmentTest extends TestCase
 
     public function test_a_callout_with_no_claim_and_no_nearby_game_event_gets_no_annotation(): void
     {
+        Bus::fake();
+
         [, , $session] = $this->alignableSession(function (Transcript $t) {
             $this->commEventWithKeyword($t, 'rotating', 20000, 21000);
         });
@@ -163,6 +169,8 @@ class SessionGameStateAlignmentTest extends TestCase
             $this->commEventWithKeyword($t, 'rotating', 20000, 21000);
         });
 
+        Bus::fake();
+
         // An enemy kill sitting in the window makes the moment possibly_negative
         // even though "rotating" claims nothing about kills.
         $kill = GameEvent::factory()->for($session)->create([
@@ -180,6 +188,8 @@ class SessionGameStateAlignmentTest extends TestCase
 
     public function test_a_contradiction_pair_event_is_possibly_negative_with_the_nudge(): void
     {
+        Bus::fake();
+
         [, , $session] = $this->alignableSession(function (Transcript $t) {
             $this->commEventWithKeyword($t, 'planting', 20000, 21000);
         });
@@ -197,6 +207,8 @@ class SessionGameStateAlignmentTest extends TestCase
 
     public function test_the_job_is_idempotent_and_rewrites_its_own_rows(): void
     {
+        Bus::fake();
+
         [, , $session] = $this->alignableSession(function (Transcript $t) {
             $this->commEventWithKeyword($t, 'planting', 20000, 21000);
         });
@@ -213,6 +225,8 @@ class SessionGameStateAlignmentTest extends TestCase
 
     public function test_the_job_snapshots_the_team_game_alignment_window(): void
     {
+        Bus::fake();
+
         [$team, , $session] = $this->alignableSession(function (Transcript $t) {
             $this->commEventWithKeyword($t, 'planting', 20000, 21000);
         });
@@ -308,6 +322,9 @@ class SessionGameStateAlignmentTest extends TestCase
         Bus::fake();
 
         [, , $session] = $this->alignableSession();
+        // Dead-air detection (which gates every session) already done, so the
+        // only question is whether alignment is skipped.
+        $session->update(['dead_air_detected_at' => now()]);
 
         (new AdvanceSessionAfterProcessing($session))->handle();
 

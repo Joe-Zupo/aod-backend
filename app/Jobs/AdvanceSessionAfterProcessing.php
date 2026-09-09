@@ -22,11 +22,12 @@ use Illuminate\Support\Facades\DB;
  * and a later transcript's completion re-runs it (see
  * docs/adr/0006-communication-events.md).
  *
- * When the session has game events, one more gate stands before
- * `timeline_ready`: game-state alignment. This job dispatches
- * AssessGameStateAlignment and returns without advancing; that job re-dispatches
- * this one once its marker is set, and the next run advances (see
- * docs/adr/0008-game-state-alignment.md).
+ * Two detection gates stand before `timeline_ready`. Dead-air detection runs for
+ * every session; game-state alignment runs only when the session has game
+ * events. When either marker is still null this job dispatches the missing job
+ * or jobs and returns without advancing; each re-dispatches this one on
+ * completion, and the run that finds both markers set advances (see
+ * docs/adr/0008-game-state-alignment.md and docs/adr/0009-dead-air-detection.md).
  */
 class AdvanceSessionAfterProcessing implements ShouldQueue
 {
@@ -36,19 +37,19 @@ class AdvanceSessionAfterProcessing implements ShouldQueue
 
     public function handle(): void
     {
-        $outcome = DB::transaction(function () {
+        $plan = DB::transaction(function () {
             $session = Session::whereKey($this->session->getKey())
                 ->lockForUpdate()
-                ->first(['id', 'status', 'game_alignment_assessed_at']);
+                ->first(['id', 'status', 'game_alignment_assessed_at', 'dead_air_detected_at']);
 
             if (! $session || $session->status !== Session::STATUS_PROCESSING) {
-                return 'noop';
+                return null;
             }
 
             $transcripts = $this->session->transcriptsQuery()->get(['status', 'comm_events_detected']);
 
             if ($transcripts->isEmpty()) {
-                return 'noop';
+                return null;
             }
 
             $allTerminal = $transcripts->every(fn ($transcript) => in_array(
@@ -62,27 +63,36 @@ class AdvanceSessionAfterProcessing implements ShouldQueue
                 ->every(fn ($transcript) => (bool) $transcript->comm_events_detected);
 
             if (! $allTerminal || ! $completedDetected) {
-                return 'noop';
+                return null;
             }
 
-            // Alignment only gates a session that has game events, and only
-            // until it has been assessed once.
-            if ($session->game_alignment_assessed_at === null && $this->session->gameEvents()->exists()) {
-                return 'assess';
+            // Alignment only gates a session that has game events; dead air gates
+            // every session. Each gate holds until its marker is set once.
+            $assess = $session->game_alignment_assessed_at === null && $this->session->gameEvents()->exists();
+            $detectDeadAir = $session->dead_air_detected_at === null;
+
+            if ($assess || $detectDeadAir) {
+                return ['assess' => $assess, 'dead_air' => $detectDeadAir, 'advanced' => false];
             }
 
             $this->session->update(['status' => Session::STATUS_TIMELINE_READY]);
 
-            return 'advanced';
+            return ['assess' => false, 'dead_air' => false, 'advanced' => true];
         });
 
-        if ($outcome === 'assess') {
-            AssessGameStateAlignment::dispatch($this->session);
-
+        if ($plan === null) {
             return;
         }
 
-        if ($outcome === 'advanced') {
+        if ($plan['assess']) {
+            AssessGameStateAlignment::dispatch($this->session);
+        }
+
+        if ($plan['dead_air']) {
+            DetectDeadAir::dispatch($this->session);
+        }
+
+        if ($plan['advanced']) {
             Broadcasting::safely(new SessionStatusChanged($this->session->refresh()));
         }
     }

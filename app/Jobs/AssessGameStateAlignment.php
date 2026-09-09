@@ -77,6 +77,17 @@ class AssessGameStateAlignment implements ShouldQueue
             ->get();
 
         DB::transaction(function () use ($session, $commEvents, $gameEvents, $windowMs) {
+            // Re-read the marker under the session lock: the fan-in can dispatch
+            // this job more than once when transcripts finish close together, and
+            // a second run must not rewrite the rows a first one already wrote.
+            $locked = Session::whereKey($session->getKey())
+                ->lockForUpdate()
+                ->first(['id', 'game_alignment_assessed_at']);
+
+            if (! $locked || $locked->game_alignment_assessed_at !== null) {
+                return;
+            }
+
             Annotation::query()
                 ->where('topic', Annotation::TOPIC_GAME_STATE_ALIGNMENT)
                 ->where('annotatable_type', (new CommEvent)->getMorphClass())

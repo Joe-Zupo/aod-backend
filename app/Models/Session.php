@@ -490,7 +490,22 @@ class Session extends Model
                     ->select('id'))
                 ->delete();
 
-            $this->update(['status' => self::STATUS_PROCESSING, 'game_alignment_assessed_at' => null]);
+            // Drop dead-air detection too: its periods are session-derived and
+            // its marker must be null so the fan-in re-runs DetectDeadAir before
+            // advancing (ADR 0009).
+            Annotation::query()
+                ->where('topic', Annotation::TOPIC_DEAD_AIR)
+                ->where('annotatable_type', (new DeadAirPeriod)->getMorphClass())
+                ->whereIn('annotatable_id', DeadAirPeriod::query()->where('session_id', $this->getKey())->select('id'))
+                ->delete();
+
+            DeadAirPeriod::query()->where('session_id', $this->getKey())->delete();
+
+            $this->update([
+                'status' => self::STATUS_PROCESSING,
+                'game_alignment_assessed_at' => null,
+                'dead_air_detected_at' => null,
+            ]);
 
             Broadcasting::safely(new SessionStatusChanged($this));
 
