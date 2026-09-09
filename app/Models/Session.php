@@ -80,10 +80,12 @@ class Session extends Model
         'session_code',
         'status',
         'game_alignment_assessed_at',
+        'dead_air_detected_at',
     ];
 
     protected $casts = [
         'game_alignment_assessed_at' => 'datetime',
+        'dead_air_detected_at' => 'datetime',
     ];
 
     /**
@@ -131,6 +133,16 @@ class Session extends Model
     public function gameEvents(): HasMany
     {
         return $this->hasMany(GameEvent::class)->orderBy('match_time_ms');
+    }
+
+    /**
+     * The session's team-aggregate silent stretches, written by DetectDeadAir,
+     * ordered like the timeline reads them (see
+     * docs/adr/0009-dead-air-detection.md).
+     */
+    public function deadAirPeriods(): HasMany
+    {
+        return $this->hasMany(DeadAirPeriod::class)->orderBy('start_ms');
     }
 
     /**
