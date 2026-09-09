@@ -27,19 +27,13 @@ namespace App\Support;
  */
 class GameStateAlignmentAssessor
 {
-    public const REVIEW_NUDGE = 'Consider reviewing this moment.';
+    public const REVIEW_NUDGE = GameEventNarrator::REVIEW_NUDGE;
 
     public const ASSESSMENT_POSSIBLY_POSITIVE = 'possibly_positive';
 
     public const ASSESSMENT_POSSIBLY_NEGATIVE = 'possibly_negative';
 
     public const ASSESSMENT_NEUTRAL = 'neutral';
-
-    /**
-     * How many nearby events the body spells out before collapsing the rest to
-     * "and N more".
-     */
-    private const BODY_EVENT_CAP = 3;
 
     /**
      * @param  list<string>  $normalizedKeywords  the callout's keywords, in callout order
@@ -232,7 +226,7 @@ class GameStateAlignmentAssessor
         $body = "Callout mapped to {$kind}; ".self::describe($decider).' contradicts it';
 
         if ($rest !== []) {
-            $body .= ', also nearby '.self::narrate($rest, self::BODY_EVENT_CAP - 1);
+            $body .= ', also nearby '.self::narrate($rest, GameEventNarrator::DEFAULT_CAP - 1);
         }
 
         return $body.'. '.self::REVIEW_NUDGE;
@@ -243,7 +237,7 @@ class GameStateAlignmentAssessor
      */
     private static function neutralBody(string $kind, int $windowMs, array $inWindow): string
     {
-        $body = "Callout mapped to {$kind}; no {$kind} within ".self::seconds($windowMs).'s';
+        $body = "Callout mapped to {$kind}; no {$kind} within ".GameEventNarrator::seconds($windowMs).'s';
 
         if ($inWindow !== []) {
             $body .= ', but '.self::narrate($inWindow).' nearby';
@@ -258,71 +252,25 @@ class GameStateAlignmentAssessor
      *
      * @param  list<array{event: array<string, mixed>, signed: int}>  $hits
      */
-    private static function narrate(array $hits, int $cap = self::BODY_EVENT_CAP): string
+    private static function narrate(array $hits, int $cap = GameEventNarrator::DEFAULT_CAP): string
     {
-        $shown = array_slice($hits, 0, $cap);
-        $phrases = array_map(fn (array $hit) => self::describe($hit), $shown);
-
-        $sentence = implode('; ', $phrases);
-
-        $remainder = count($hits) - count($shown);
-
-        if ($remainder > 0) {
-            $sentence .= " and {$remainder} more";
-        }
-
-        return $sentence;
+        return GameEventNarrator::list(
+            array_map(fn (array $hit) => self::describe($hit), $hits),
+            $cap,
+        );
     }
 
     /**
      * One game event as "<what> <when>", e.g. "ally spike_plant 900 ms later",
-     * "Jett died 1.2s earlier", "an enemy kill during the callout".
+     * "Jett died 1.2s earlier", "an enemy kill during the callout". The "what"
+     * is shared with dead air via GameEventNarrator; the signed offset is
+     * alignment's own.
      *
      * @param  array{event: array{type: string, side: ?string, note: ?string, raw: ?array<string, mixed>}, signed: int}  $hit
      */
     private static function describe(array $hit): string
     {
-        $event = $hit['event'];
-        $name = self::actorName($event);
-        $side = $event['side'];
-
-        $what = match ($event['type']) {
-            'kill' => $name !== null ? "{$name} fragged" : ($side === 'ally' ? 'an ally kill' : 'an enemy kill'),
-            'death' => $name !== null ? "{$name} died" : ($side === 'ally' ? 'an ally died' : 'an enemy died'),
-            'spike_plant' => "{$side} spike_plant",
-            'spike_defuse' => "{$side} spike_defuse",
-            'round_win' => 'the round was won',
-            'round_lost' => 'the round was lost',
-            default => $event['type'],
-        };
-
-        return trim($what.' '.self::offsetPhrase($hit['signed']));
-    }
-
-    /**
-     * The player behind a kill / death, taken from `note` if it carries one,
-     * else from a name-ish key on the preserved `raw` payload; null when the
-     * feed did not name anyone (ADR 0008, 2026-09-07 amendment).
-     *
-     * @param  array{note: ?string, raw: ?array<string, mixed>}  $event
-     */
-    private static function actorName(array $event): ?string
-    {
-        $note = is_string($event['note']) ? trim($event['note']) : '';
-
-        if ($note !== '') {
-            return $note;
-        }
-
-        foreach (['actor', 'player', 'agent', 'name'] as $key) {
-            $value = $event['raw'][$key] ?? null;
-
-            if (is_string($value) && trim($value) !== '') {
-                return trim($value);
-            }
-        }
-
-        return null;
+        return trim(GameEventNarrator::clause($hit['event']).' '.self::offsetPhrase($hit['signed']));
     }
 
     private static function offsetPhrase(int $signedMs): string
@@ -333,16 +281,8 @@ class GameStateAlignmentAssessor
 
         $magnitude = abs($signedMs) < 1000
             ? abs($signedMs).' ms'
-            : self::seconds(abs($signedMs)).'s';
+            : GameEventNarrator::seconds(abs($signedMs)).'s';
 
         return $magnitude.($signedMs > 0 ? ' later' : ' earlier');
-    }
-
-    /**
-     * Milliseconds as a trimmed second count: 5000 -> "5", 1500 -> "1.5".
-     */
-    private static function seconds(int $ms): string
-    {
-        return rtrim(rtrim(number_format($ms / 1000, 1), '0'), '.');
     }
 }
