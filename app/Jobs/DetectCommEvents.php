@@ -106,10 +106,14 @@ class DetectCommEvents implements ShouldQueue
         $clusters = CommEventClusterer::cluster($hits, $paddingMs);
 
         DB::transaction(function () use ($transcript, $clusters, $paddingMs, $words) {
-            // Any annotation hanging off a comm event about to be deleted would
-            // be orphaned (polymorphic, no cascade), so clear them first. On a
-            // re-analysis AssessGameStateAlignment writes fresh rows afterward.
+            // System game-state-alignment rows hang off comm events about to be
+            // deleted and would be orphaned (polymorphic, no cascade), so clear
+            // them first; AssessGameStateAlignment writes fresh ones afterward on
+            // a re-analysis. Scoped to that topic so human-authored notes on the
+            // same callouts survive a keyword re-tune, matching the deletes in
+            // AssessGameStateAlignment and Session::reanalyze().
             Annotation::query()
+                ->where('topic', Annotation::TOPIC_GAME_STATE_ALIGNMENT)
                 ->where('annotatable_type', (new CommEvent)->getMorphClass())
                 ->whereIn('annotatable_id', $transcript->commEvents()->select('id'))
                 ->delete();

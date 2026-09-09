@@ -14,6 +14,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
+use Throwable;
 
 /**
  * One pass over a session: for every communication event whose keyword makes a
@@ -33,6 +34,19 @@ class AssessGameStateAlignment implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public function __construct(public Session $session) {}
+
+    public function tries(): int
+    {
+        return (int) config('services.assemblyai.job_tries');
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function backoff(): array
+    {
+        return [10, 30, 60];
+    }
 
     public function handle(): void
     {
@@ -99,6 +113,30 @@ class AssessGameStateAlignment implements ShouldQueue
 
             $session->forceFill(['game_alignment_assessed_at' => now()])->save();
         });
+
+        AdvanceSessionAfterProcessing::dispatch($session);
+    }
+
+    /**
+     * A permanent assessment failure must not strand the session in `processing`:
+     * the fan-in holds a game-event session at this gate until the marker is set,
+     * and `reanalyze()` needs `timeline_ready`, so nothing would ever retry.
+     * Degrade to an unassessed timeline instead — set the marker with no
+     * annotations and let the fan-in advance, the same "one dead mic never
+     * freezes the review" call DetectCommEvents makes for its own stage (see
+     * docs/adr/0008-game-state-alignment.md).
+     */
+    public function failed(Throwable $e): void
+    {
+        $session = $this->session->fresh();
+
+        if (! $session || $session->status !== Session::STATUS_PROCESSING) {
+            return;
+        }
+
+        if ($session->game_alignment_assessed_at === null) {
+            $session->forceFill(['game_alignment_assessed_at' => now()])->save();
+        }
 
         AdvanceSessionAfterProcessing::dispatch($session);
     }

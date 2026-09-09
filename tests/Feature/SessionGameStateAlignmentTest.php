@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\AdvanceSessionAfterProcessing;
 use App\Jobs\AssessGameStateAlignment;
+use App\Jobs\DetectCommEvents;
 use App\Models\Annotation;
 use App\Models\AodRecord;
 use App\Models\CalloutDetection;
@@ -245,6 +246,39 @@ class SessionGameStateAlignmentTest extends TestCase
         Bus::assertDispatched(AdvanceSessionAfterProcessing::class);
     }
 
+    public function test_a_permanent_assessment_failure_marks_the_session_and_lets_the_fan_in_advance(): void
+    {
+        Bus::fake();
+
+        [, , $session] = $this->alignableSession(function (Transcript $t) {
+            $this->commEventWithKeyword($t, 'planting', 20000, 21000);
+        });
+        GameEvent::factory()->for($session)->create(['type' => 'spike_plant', 'side' => 'ally', 'match_time_ms' => 21800]);
+
+        (new AssessGameStateAlignment($session))->failed(new \RuntimeException('boom'));
+
+        // Marker set with no annotations written, and advance re-dispatched so
+        // the session is not stranded in `processing`.
+        $this->assertNotNull($session->fresh()->game_alignment_assessed_at);
+        $this->assertDatabaseCount('annotations', 0);
+        Bus::assertDispatched(AdvanceSessionAfterProcessing::class);
+    }
+
+    public function test_a_failure_after_the_session_left_processing_is_a_no_op(): void
+    {
+        Bus::fake();
+
+        [, , $session] = $this->alignableSession(function (Transcript $t) {
+            $this->commEventWithKeyword($t, 'planting', 20000, 21000);
+        }, Session::STATUS_TIMELINE_READY);
+        GameEvent::factory()->for($session)->create(['type' => 'spike_plant', 'side' => 'ally', 'match_time_ms' => 21800]);
+
+        (new AssessGameStateAlignment($session))->failed(new \RuntimeException('boom'));
+
+        $this->assertNull($session->fresh()->game_alignment_assessed_at);
+        Bus::assertNotDispatched(AdvanceSessionAfterProcessing::class);
+    }
+
     public function test_advance_holds_a_processing_session_with_game_events_until_alignment_runs(): void
     {
         Bus::fake();
@@ -297,6 +331,24 @@ class SessionGameStateAlignmentTest extends TestCase
         $this->assertNull($session->fresh()->game_alignment_assessed_at);
         $this->assertSame(Session::STATUS_PROCESSING, $session->fresh()->status);
         $this->assertDatabaseCount('annotations', 0);
+    }
+
+    public function test_detection_rebuild_clears_only_the_alignment_topic_not_other_annotations(): void
+    {
+        [, , , , $transcript] = $this->alignableSession(function (Transcript $t) {
+            $this->commEventWithKeyword($t, 'planting', 20000, 21000);
+        });
+
+        $commEvent = CommEvent::sole();
+        Annotation::factory()->for($commEvent, 'annotatable')->create();
+        Annotation::factory()->deadAir()->for($commEvent, 'annotatable')->create();
+
+        (new DetectCommEvents($transcript))->handle();
+
+        // The system alignment row is cleared with the comm event it hung off;
+        // any other topic (a human note later) is not detection's to delete.
+        $this->assertSame(0, Annotation::where('topic', Annotation::TOPIC_GAME_STATE_ALIGNMENT)->count());
+        $this->assertSame(1, Annotation::where('topic', Annotation::TOPIC_DEAD_AIR)->count());
     }
 
     public function test_timeline_embeds_alignment_annotations_on_the_communication_event_entry(): void
