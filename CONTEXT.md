@@ -85,7 +85,7 @@ A Coach's sign-off on one Timestamp during `timeline_ready`, recorded as `review
 _Avoid_: checked, approved, signed
 
 **Analysis Ready**:
-The Session status (`analysis_ready`) after `timeline_ready`, entered by a Coach once every Timestamp is Reviewed. The point the `session_timeline` and `timeline_summary` endpoints open to players, and players may reply to Annotations. A Coach can reopen review, returning the Session to `timeline_ready` with existing Reviewed stamps kept. See **Session status**.
+The Session status (`analysis_ready`) after `timeline_ready`, entered by a Coach once every Timestamp is Reviewed. The point the `session_timeline` and `timeline_summary` endpoints open to players, and players may reply to Annotations. A Coach can reopen review, returning the Session to `timeline_ready` with existing Reviewed stamps kept. `app_sessions.analysis_ready_at` records when the Session last reached this status, stamped by `markAnalysisReady()` and left in place by reopen-review; it is what the Team Dashboard orders its Session Pool by. See **Session status**.
 
 **Manual Timestamp**:
 A Timestamp a Coach authored by hand during review, rather than one a detection job produced: `created_by` is set and the detection-snapshot column (`padding_ms` or `dead_air_threshold_ms`) is null. A Coach may create a Communication Event (on one participant, `communication_type` chosen freely) or a Dead-Air Period this way; Game Events are feed-only. A re-analysis discards every Manual Timestamp.
@@ -121,3 +121,18 @@ _Avoid_: accuracy / correspondence (the values are valence, not a right/wrong ca
 
 **Game Alignment Window** (of Team Settings):
 The team-configured symmetric window, in milliseconds, around a Communication Event within which Game Events are considered for Game-State Alignment. API field `game_alignment_window_ms` (DB `setting_name` `game_alignment_window`, matching the `comm_event_padding` precedent), default 5000 — wider than Communication Event Padding because game-event timing is coarser. Snapshot onto each Annotation when alignment runs; a later edit does not re-run alignment on an already-processed Session.
+
+**Team Dashboard**:
+The read-only aggregate surface over a team's recent Sessions, two endpoints, both on the caller's active team (`?team={id}` to override), both open to any active member. `GET /api/dashboard/header` carries a team identity block, a Communication KPI card, and a communication-mix count card; every member gets the same team-wide numbers, only `identity.user` is the caller. `GET /api/dashboard/players` shapes its body by role: a Coach sees one line per active non-coach member, a player sees only their own line plus the team median of each metric. Computes nothing new about a Session, only pools what detection already produced. See `docs/adr/0011-team-dashboard.md`.
+_Avoid_: report, analytics, stats page; Coach Dashboard (the header is not coach-only)
+
+**Session Pool** (of the Team Dashboard):
+The N most recent Analysis Ready Sessions for the team, ordered by `analysis_ready_at` descending, that every Dashboard number is computed over. N is the `?sessions=` query parameter, an integer 1 to 50, default 3. When the team has fewer than N Analysis Ready Sessions the data cards collapse to an "Insufficient sessions queried" message and only the identity and window blocks render.
+_Avoid_: window (that is the from/to date span derived from the pool, not the pool itself)
+
+**Communication KPI**:
+The `kpi` card on the Dashboard header: `comm_frequency` (pooled Communication Events per minute over the summed Session window), `alignment_rate`, `absence_ms` (summed Dead-Air Period duration), and `calls_classified` (total Communication Events), all over the Session Pool.
+
+**Alignment Rate** (of the Team Dashboard):
+`(assessed - possibly_negative) / assessed` as a percent over the Game-State Alignment Annotations in scope, two decimals, null when nothing was assessed. A valence-derived proxy, not a correctness measure: it inherits the Game-State Alignment caveat, so it is never named `accuracy`. Only a `possibly_negative` reading lowers it. Reported on the Communication KPI card, on each Dashboard player line, and as a team median.
+_Avoid_: accuracy, alignment accuracy, correctness
