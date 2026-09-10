@@ -112,11 +112,13 @@ class Session extends Model
         'session_name',
         'session_code',
         'status',
+        'analysis_ready_at',
         'game_alignment_assessed_at',
         'dead_air_detected_at',
     ];
 
     protected $casts = [
+        'analysis_ready_at' => 'datetime',
         'game_alignment_assessed_at' => 'datetime',
         'dead_air_detected_at' => 'datetime',
     ];
@@ -627,7 +629,10 @@ class Session extends Model
                 throw new SessionTransitionException("{$outstanding} timestamp(s) still need review.");
             }
 
-            $this->update(['status' => self::STATUS_ANALYSIS_READY]);
+            $this->update([
+                'status' => self::STATUS_ANALYSIS_READY,
+                'analysis_ready_at' => now(),
+            ]);
 
             Broadcasting::safely(new SessionStatusChanged($this));
         });

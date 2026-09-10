@@ -71,6 +71,36 @@ class AnalysisReadyTransitionTest extends TestCase
             ->assertOk();
     }
 
+    public function test_marking_analysis_ready_stamps_analysis_ready_at(): void
+    {
+        [, $coach, $session] = $this->timelineReadySession();
+
+        $this->assertNull($session->analysis_ready_at);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'analysis_ready'])
+            ->assertOk();
+
+        $this->assertNotNull($session->fresh()->analysis_ready_at);
+    }
+
+    public function test_reopening_review_leaves_analysis_ready_at_set(): void
+    {
+        [, $coach, $session] = $this->timelineReadySession();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'analysis_ready'])
+            ->assertOk();
+        $stamp = $session->fresh()->analysis_ready_at;
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'timeline_ready'])
+            ->assertOk();
+
+        $this->assertNotNull($stamp);
+        $this->assertEquals($stamp, $session->fresh()->analysis_ready_at);
+    }
+
     public function test_a_player_cannot_mark_analysis_ready(): void
     {
         [, , $session] = $this->timelineReadySession();
