@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AnnotationController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\SessionController;
 use App\Http\Controllers\TeamController;
 use App\Http\Controllers\TeamSettingsController;
@@ -21,6 +22,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/me', [UserController::class, 'update']);
     Route::put('/me/password', [UserController::class, 'updatePassword']);
     Route::get('/me/teams', [UserController::class, 'teams']);
+
+    // Team dashboard (issue #17). Both act on the caller's active team via
+    // resolveTeam(), ?team={id} override, and serve any active member. Only
+    // `players` shapes its body by role (coach roster vs player self + median).
+    Route::get('/dashboard/header', [DashboardController::class, 'header']);
+    Route::get('/dashboard/players', [DashboardController::class, 'players']);
 
     // Every route below acts on the caller's own active team by default. Pass
     // ?team={id} to act on a different team instead (still subject to the same

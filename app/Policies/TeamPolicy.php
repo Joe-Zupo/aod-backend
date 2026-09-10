@@ -16,6 +16,25 @@ class TeamPolicy
         return $this->isActiveMember($user, $team);
     }
 
+    /**
+     * The dashboard header (identity, KPI card, comm-mix card) serves any
+     * active member; every member sees the same team-wide numbers, only
+     * identity.user differs (issue #17).
+     */
+    public function viewDashboard(User $user, Team $team): Response
+    {
+        return $this->isActiveMember($user, $team);
+    }
+
+    /**
+     * The players dashboard serves any active member; a coach sees the roster,
+     * a player sees their own line against the team median (issue #17).
+     */
+    public function viewPlayerDashboard(User $user, Team $team): Response
+    {
+        return $this->isActiveMember($user, $team);
+    }
+
     public function update(User $user, Team $team): Response
     {
         return $this->isMainCoach($user, $team);
