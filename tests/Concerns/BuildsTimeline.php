@@ -2,7 +2,6 @@
 
 namespace Tests\Concerns;
 
-use App\Models\AodRecord;
 use App\Models\CommEvent;
 use App\Models\DeadAirPeriod;
 use App\Models\GameEvent;
@@ -11,7 +10,7 @@ use App\Models\SessionParticipant;
 use App\Models\Team;
 use App\Models\Transcript;
 use App\Models\User;
-use App\Models\VodRecord;
+use Database\Seeders\Concerns\RecordsPlayerSessions;
 
 /**
  * Builds a `timeline_ready` session carrying a chosen number of each timestamp
@@ -19,7 +18,7 @@ use App\Models\VodRecord;
  */
 trait BuildsTimeline
 {
-    use CreatesTeamsAndSessions;
+    use CreatesTeamsAndSessions, RecordsPlayerSessions;
 
     /**
      * @return array{0: Team, 1: User, 2: Session, 3: SessionParticipant, 4: Transcript}
@@ -38,12 +37,7 @@ trait BuildsTimeline
             SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
         );
 
-        $aod = AodRecord::factory()->for($player)->create();
-        VodRecord::factory()->for($player)->create();
-        $transcript = Transcript::factory()->for($aod)->completed()->create([
-            'audio_duration_ms' => 300000,
-            'comm_events_detected' => true,
-        ]);
+        $transcript = $this->recordCompletedTranscript($player);
 
         for ($i = 0; $i < $comm; $i++) {
             CommEvent::create([
