@@ -41,10 +41,10 @@ class SessionGameEventsTest extends TestCase
     public function test_completion_with_a_valid_game_events_payload_stores_one_row_per_element(): void
     {
         [, $coach, $session, $players] = $this->recordingSession(2);
+        $this->uploadPair($players[0], $session);
 
         $this->actingAs($coach, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/complete", [
-                'players' => [$this->pair($players[0]), $this->empty($players[1])],
                 'game_events' => json_encode($this->fixtureEvents()),
             ])
             ->assertOk()
@@ -76,9 +76,7 @@ class SessionGameEventsTest extends TestCase
         [, $coach, $session, $players] = $this->recordingSession(2);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", [
-                'players' => [$this->pair($players[0]), $this->empty($players[1])],
-            ])
+            ->postJson("/api/sessions/{$session->id}/complete", [])
             ->assertStatus(422)
             ->assertJsonPath('message', 'Game events are required to complete a session.');
 
@@ -93,6 +91,7 @@ class SessionGameEventsTest extends TestCase
     public function test_completion_accepts_the_game_events_payload_as_an_uploaded_json_file(): void
     {
         [, $coach, $session, $players] = $this->recordingSession(2);
+        $this->uploadPair($players[0], $session);
 
         $file = UploadedFile::fake()->createWithContent(
             'batch13-prepared-match.json',
@@ -101,7 +100,6 @@ class SessionGameEventsTest extends TestCase
 
         $this->actingAs($coach, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/complete", [
-                'players' => [$this->pair($players[0]), $this->empty($players[1])],
                 'game_events' => $file,
             ])
             ->assertOk()
@@ -124,7 +122,6 @@ class SessionGameEventsTest extends TestCase
 
         $this->actingAs($coach, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/complete", [
-                'players' => [$this->pair($players[0]), $this->empty($players[1])],
                 'game_events' => $file,
             ])
             ->assertStatus(422);
@@ -139,7 +136,6 @@ class SessionGameEventsTest extends TestCase
 
         $this->actingAs($coach, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/complete", [
-                'players' => [$this->pair($players[0]), $this->empty($players[1])],
                 'game_events' => '[]',
             ])
             ->assertStatus(422)
@@ -155,7 +151,6 @@ class SessionGameEventsTest extends TestCase
 
         $this->actingAs($coach, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/complete", [
-                'players' => [$this->pair($players[0]), $this->empty($players[1])],
                 'game_events' => 'not json at all',
             ])
             ->assertStatus(422)
@@ -176,7 +171,6 @@ class SessionGameEventsTest extends TestCase
 
         $this->actingAs($coach, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/complete", [
-                'players' => [$this->pair($players[0]), $this->empty($players[1])],
                 'game_events' => json_encode([$badElement]),
             ])
             ->assertStatus(422);
@@ -214,6 +208,7 @@ class SessionGameEventsTest extends TestCase
     public function test_the_raw_column_keeps_the_original_payload_element(): void
     {
         [, $coach, $session, $players] = $this->recordingSession(2);
+        $this->uploadPair($players[0], $session);
 
         $element = [
             'type' => 'kill',
@@ -226,7 +221,6 @@ class SessionGameEventsTest extends TestCase
 
         $this->actingAs($coach, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/complete", [
-                'players' => [$this->pair($players[0]), $this->empty($players[1])],
                 'game_events' => json_encode([$element]),
             ])
             ->assertOk();
@@ -346,22 +340,17 @@ class SessionGameEventsTest extends TestCase
     }
 
     /**
-     * @return array<string, mixed>
+     * Delivers $player's own audio and video via the self-service upload
+     * endpoint (docs/adr/0012-per-player-recording-uploads.md), the
+     * replacement for the old players[] slot on the completion call.
      */
-    private function pair(User $player): array
+    private function uploadPair(User $player, Session $session): void
     {
-        return [
-            'user_id' => $player->id,
-            'audio' => UploadedFile::fake()->create('aod.mp3', 16, 'audio/mpeg'),
-            'video' => UploadedFile::fake()->create('vod.mp4', 16, 'video/mp4'),
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function empty(User $player): array
-    {
-        return ['user_id' => $player->id];
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'audio' => UploadedFile::fake()->create('aod.mp3', 16, 'audio/mpeg'),
+                'video' => UploadedFile::fake()->create('vod.mp4', 16, 'video/mp4'),
+            ])
+            ->assertOk();
     }
 }

@@ -43,9 +43,10 @@ class SessionTranscriptionTest extends TestCase
         Queue::fake();
 
         [, $coach, $session, $players] = $this->recordingSession(1);
+        $this->uploadPair($players[0], $session);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk()
             ->assertJsonPath('data.session.status', Session::STATUS_PROCESSING);
 
@@ -60,11 +61,12 @@ class SessionTranscriptionTest extends TestCase
         Queue::fake();
 
         [, $coach, $session, $players] = $this->recordingSession(1);
+        $this->uploadPair($players[0], $session);
 
         $this->assertDatabaseMissing('timelines', ['session_id' => $session->id]);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertDatabaseHas('timelines', ['session_id' => $session->id]);
@@ -75,12 +77,11 @@ class SessionTranscriptionTest extends TestCase
         Queue::fake();
 
         [, $coach, $session, $players] = $this->recordingSession(2);
+        $this->uploadPair($players[0], $session);
+        $this->uploadPair($players[1], $session);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
-                $this->pair($players[0]),
-                $this->pair($players[1]),
-            ], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertDatabaseCount('transcripts', 2);
@@ -102,12 +103,15 @@ class SessionTranscriptionTest extends TestCase
         Queue::fake();
 
         [, $coach, $session, $players] = $this->recordingSession(2);
+        $this->uploadPair($players[0], $session);
+        $this->actingAs($players[1], 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
+            ])
+            ->assertOk();
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
-                $this->pair($players[0]),
-                ['user_id' => $players[1]->id, 'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4')],
-            ], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertDatabaseCount('transcripts', 1);
@@ -123,9 +127,10 @@ class SessionTranscriptionTest extends TestCase
         Queue::fake([PollTranscription::class]);
 
         [, $coach, $session, $players] = $this->recordingSession(1);
+        $this->uploadPair($players[0], $session);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $transcript = Transcript::sole();
@@ -194,9 +199,10 @@ class SessionTranscriptionTest extends TestCase
         ]);
 
         [, $coach, $session, $players] = $this->recordingSession(1);
+        $this->uploadPair($players[0], $session);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $transcript = Transcript::sole();
@@ -265,9 +271,10 @@ class SessionTranscriptionTest extends TestCase
         ]);
 
         [, $coach, $session, $players] = $this->recordingSession(1);
+        $this->uploadPair($players[0], $session);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertSame(Transcript::STATUS_COMPLETED, Transcript::sole()->status);
@@ -280,9 +287,10 @@ class SessionTranscriptionTest extends TestCase
         Queue::fake();
 
         [, $coach, $session, $players] = $this->recordingSession(1);
+        $this->uploadPair($players[0], $session);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->actingAs($coach, 'sanctum')
@@ -375,14 +383,17 @@ class SessionTranscriptionTest extends TestCase
     }
 
     /**
-     * @return array<string, mixed>
+     * Delivers $player's own audio and video via the self-service upload
+     * endpoint (docs/adr/0012-per-player-recording-uploads.md), the
+     * replacement for the old players[] slot on the completion call.
      */
-    private function pair(User $player): array
+    private function uploadPair(User $player, Session $session): void
     {
-        return [
-            'user_id' => $player->id,
-            'audio' => UploadedFile::fake()->create('aod.mp3', 16, 'audio/mpeg'),
-            'video' => UploadedFile::fake()->create('vod.mp4', 16, 'video/mp4'),
-        ];
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'audio' => UploadedFile::fake()->create('aod.mp3', 16, 'audio/mpeg'),
+                'video' => UploadedFile::fake()->create('vod.mp4', 16, 'video/mp4'),
+            ])
+            ->assertOk();
     }
 }

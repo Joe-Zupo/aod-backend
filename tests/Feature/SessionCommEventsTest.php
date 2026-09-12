@@ -67,13 +67,19 @@ class SessionCommEventsTest extends TestCase
     /**
      * @return array<string, mixed>
      */
-    private function pair(User $player): array
+    /**
+     * Delivers $player's own audio and video via the self-service upload
+     * endpoint (docs/adr/0012-per-player-recording-uploads.md), the
+     * replacement for the old players[] slot on the completion call.
+     */
+    private function uploadPair(User $player, Session $session): void
     {
-        return [
-            'user_id' => $player->id,
-            'audio' => UploadedFile::fake()->create('aod.mp3', 16, 'audio/mpeg'),
-            'video' => UploadedFile::fake()->create('vod.mp4', 16, 'video/mp4'),
-        ];
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'audio' => UploadedFile::fake()->create('aod.mp3', 16, 'audio/mpeg'),
+                'video' => UploadedFile::fake()->create('vod.mp4', 16, 'video/mp4'),
+            ])
+            ->assertOk();
     }
 
     /**
@@ -188,9 +194,10 @@ class SessionCommEventsTest extends TestCase
         ]);
 
         [, $coach, $session, $players] = $this->recordingSession(1);
+        $this->uploadPair($players[0], $session);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [$this->pair($players[0])], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertSame(Session::STATUS_TIMELINE_READY, $session->fresh()->status);
@@ -244,12 +251,11 @@ class SessionCommEventsTest extends TestCase
         ]);
 
         [, $coach, $session, $players] = $this->recordingSession(2);
+        $this->uploadPair($players[0], $session);
+        $this->uploadPair($players[1], $session);
 
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
-                $this->pair($players[0]),
-                $this->pair($players[1]),
-            ], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         $this->assertSame(Session::STATUS_TIMELINE_READY, $session->fresh()->status);

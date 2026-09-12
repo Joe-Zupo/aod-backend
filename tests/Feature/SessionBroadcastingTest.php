@@ -317,12 +317,15 @@ class SessionBroadcastingTest extends TestCase
         $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
         $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
 
-        $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [[
-                'user_id' => $player->id,
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
                 'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
                 'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
-            ]], 'game_events' => $this->stubGameEvents()])
+            ])
+            ->assertOk();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         Event::assertDispatched(
@@ -360,15 +363,15 @@ class SessionBroadcastingTest extends TestCase
         $this->addParticipant($session, $one, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
         $this->addParticipant($session, $two, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
 
+        $this->actingAs($one, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
+                'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
+            ])
+            ->assertOk();
+
         $this->actingAs($coach, 'sanctum')
-            ->postJson("/api/sessions/{$session->id}/complete", ['players' => [
-                [
-                    'user_id' => $one->id,
-                    'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
-                    'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
-                ],
-                ['user_id' => $two->id],
-            ], 'game_events' => $this->stubGameEvents()])
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
         Event::assertDispatchedTimes(SessionParticipantStatusChanged::class, 2);
