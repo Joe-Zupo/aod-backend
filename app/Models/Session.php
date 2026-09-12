@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Throwable;
 
 class Session extends Model
 {
@@ -341,20 +342,34 @@ class Session extends Model
 
     /**
      * Transition this session to cancelled from either non-terminal status.
-     * Aborting an in_progress run persists nothing: no AOD/VOD record is
-     * written until a session reaches completed, so there's nothing here to
-     * discard.
+     * Per-player uploads (docs/adr/0012-per-player-recording-uploads.md) can
+     * now land during in_progress independently of completion, so aborting
+     * must explicitly discard them: any AodRecord/VodRecord already stored
+     * for this session is deleted inside the transaction, and their files are
+     * removed from disk after it commits (a storage failure here is swallowed,
+     * not allowed to block the cancellation that already succeeded in the DB).
      *
      * @throws SessionTransitionException when the session is already terminal
      */
     public function cancel(): void
     {
-        DB::transaction(function () {
+        $paths = [];
+
+        DB::transaction(function () use (&$paths) {
             $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
 
             if (! in_array($status, self::NON_TERMINAL_STATUSES, true)) {
                 throw new SessionTransitionException('This session can no longer be cancelled.');
             }
+
+            $participantIds = $this->participants()->pluck('id');
+
+            $paths = AodRecord::whereIn('session_participant_id', $participantIds)->pluck('path')
+                ->merge(VodRecord::whereIn('session_participant_id', $participantIds)->pluck('path'))
+                ->all();
+
+            AodRecord::whereIn('session_participant_id', $participantIds)->delete();
+            VodRecord::whereIn('session_participant_id', $participantIds)->delete();
 
             $this->update(['status' => self::STATUS_CANCELLED]);
 
@@ -362,6 +377,15 @@ class Session extends Model
 
             $this->departActiveParticipants();
         });
+
+        foreach ($paths as $path) {
+            try {
+                Storage::disk(self::RECORDING_DISK)->delete($path);
+            } catch (Throwable) {
+                // A file already gone or an unreachable disk must not undo a
+                // cancellation the DB has already committed.
+            }
+        }
     }
 
     /**

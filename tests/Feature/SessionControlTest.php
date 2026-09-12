@@ -8,6 +8,9 @@ use App\Models\SessionParticipant;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
 use Spatie\Permission\Models\Role;
 use Tests\Concerns\CreatesTeamsAndSessions;
 use Tests\TestCase;
@@ -299,6 +302,34 @@ class SessionControlTest extends TestCase
             'id' => $session->id,
             'status' => Session::STATUS_CANCELLED,
         ]);
+    }
+
+    public function test_cancelling_an_in_progress_session_deletes_uploaded_recordings(): void
+    {
+        Storage::fake('local');
+        Queue::fake();
+
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
+        $this->addParticipant($session, $coach, 'main_coach');
+        $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
+
+        $this->actingAs($player, 'sanctum')->postJson("/api/sessions/{$session->id}/recording", [
+            'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
+            'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
+        ])->assertOk();
+
+        Storage::disk('local')->assertExists("session-recordings/{$session->id}/{$player->id}/aod.mp3");
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
+            ->assertOk();
+
+        $this->assertDatabaseCount('aod_records', 0);
+        $this->assertDatabaseCount('vod_records', 0);
+        Storage::disk('local')->assertMissing("session-recordings/{$session->id}/{$player->id}/aod.mp3");
+        Storage::disk('local')->assertMissing("session-recordings/{$session->id}/{$player->id}/vod.mp4");
     }
 
     public function test_an_assistant_coach_who_did_not_create_the_session_can_cancel_it(): void
