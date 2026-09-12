@@ -319,27 +319,16 @@ class SessionController extends Controller
     /**
      * Complete Session
      *
-     * Take an audio and video slot for every recording player, store whatever
-     * files the slots hold, then transition the in_progress session to completed
-     * and sweep every recording participant to completed. Restricted to any
-     * active Coach on the session's team, not just its creator. Rejected with
-     * 422 if the session is not in_progress, the submitted player ids do not
-     * match the recording roster exactly, or no slot holds both files.
+     * Move an in_progress session to processing and sweep every recording
+     * participant to completed, once at least one already has a full stored
+     * recording pair (delivered via POST /sessions/{session}/recording).
+     * Restricted to any active Coach on the session's team, not just its
+     * creator. Rejected with 422 if the session is not in_progress or no
+     * participant has a full pair stored.
      */
     public function complete(CompleteSessionRequest $request, Session $session): JsonResponse
     {
         $this->authorize('complete', $session);
-
-        $players = $request->validated('players');
-
-        $entries = [];
-        foreach (array_keys($players) as $i) {
-            $entries[] = [
-                'user_id' => (int) $players[$i]['user_id'],
-                'audio' => $request->file("players.{$i}.audio"),
-                'video' => $request->file("players.{$i}.video"),
-            ];
-        }
 
         // input(), not validated(): the game-event rows keep the original
         // payload element in `raw`, so a key the schema does not yet name (a
@@ -352,7 +341,7 @@ class SessionController extends Controller
         }
 
         try {
-            $session->complete($entries, $gameEvents);
+            $session->complete($gameEvents);
         } catch (SessionTransitionException $e) {
             return $this->error($e->getMessage(), 422);
         }
