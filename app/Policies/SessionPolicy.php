@@ -128,6 +128,17 @@ class SessionPolicy
     }
 
     /**
+     * Any active team member may reach the upload endpoint; whether their own
+     * participant row is actually eligible right now (status `recording`, not
+     * left) is the model's guard, surfaced as a 422 rather than a policy
+     * denial — the same split `consent()` uses.
+     */
+    public function uploadRecording(User $user, Session $session): Response
+    {
+        return $this->isActiveMember($user, $session->team);
+    }
+
+    /**
      * Any active Coach on the session's team may start or complete it, not just
      * whoever created it.
      */

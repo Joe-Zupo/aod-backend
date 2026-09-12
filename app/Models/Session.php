@@ -826,6 +826,74 @@ class Session extends Model
     }
 
     /**
+     * Store the caller's own audio and/or video for this session, replacing
+     * whatever this participant previously uploaded of the same kind. The
+     * single seam for per-player media delivery (docs/adr/0012-per-player-recording-uploads.md),
+     * independent of the coach's completion call. Eligible only while the
+     * caller's own participant row is `recording` and has not left — the
+     * same per-participant gate `recordConsent()` uses, checked and locked
+     * inside one transaction so a concurrent leave/complete can't race it.
+     *
+     * @return array{aod: ?AodRecord, vod: ?VodRecord}
+     *
+     * @throws SessionTransitionException when the caller has no eligible
+     *                                    participant row in this session
+     */
+    public function uploadRecording(
+        User $user,
+        ?UploadedFile $audio,
+        ?UploadedFile $video,
+        ?string $audioClientStartedAt = null,
+        ?string $videoClientStartedAt = null,
+    ): array {
+        return DB::transaction(function () use ($user, $audio, $video, $audioClientStartedAt, $videoClientStartedAt) {
+            $participant = $this->participants()
+                ->where('user_id', $user->id)
+                ->whereNull('left_at')
+                ->with(['aodRecord', 'vodRecord'])
+                ->lockForUpdate()
+                ->first();
+
+            if (! $participant || $participant->participant_status !== SessionParticipant::PARTICIPANT_STATUS_RECORDING) {
+                throw new SessionTransitionException('You are not eligible to upload a recording for this session.');
+            }
+
+            $aod = $audio ? $this->replaceRecording(AodRecord::class, $participant, $audio, 'aod', $audioClientStartedAt) : $participant->aodRecord;
+            $vod = $video ? $this->replaceRecording(VodRecord::class, $participant, $video, 'vod', $videoClientStartedAt) : $participant->vodRecord;
+
+            return ['aod' => $aod, 'vod' => $vod];
+        });
+    }
+
+    /**
+     * Delete this participant's previous file of this $kind (if any — the
+     * extension can differ between attempts, so overwriting by name alone
+     * would orphan a file), store the new one, and upsert the tracking row.
+     * `$modelClass` is `AodRecord::class` or `VodRecord::class`, both sharing
+     * the same column set (see ADR 0003).
+     */
+    private function replaceRecording(
+        string $modelClass,
+        SessionParticipant $participant,
+        UploadedFile $file,
+        string $kind,
+        ?string $clientStartedAt,
+    ): AodRecord|VodRecord {
+        $existing = $modelClass::where('session_participant_id', $participant->id)->first();
+
+        if ($existing) {
+            Storage::disk(self::RECORDING_DISK)->delete($existing->path);
+        }
+
+        $path = $this->storeRecording($file, $participant->user_id, $kind);
+
+        return $modelClass::updateOrCreate(
+            ['session_participant_id' => $participant->id],
+            [...$this->recordAttributes($participant, $file, $path), 'client_started_at' => $clientStartedAt],
+        );
+    }
+
+    /**
      * Mark every still-present participant of this session as having left,
      * broadcasting one departure per row actually touched. Mirrors disband()'s
      * bulk pattern: the UPDATE re-checks left_at IS NULL so a participant who

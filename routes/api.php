@@ -77,5 +77,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/sessions/{session}/consent', [SessionController::class, 'consent']);
     Route::post('/sessions/{session}/start', [SessionController::class, 'start']);
     Route::post('/sessions/{session}/complete', [SessionController::class, 'complete']);
+    Route::post('/sessions/{session}/recording', [SessionController::class, 'uploadRecording']);
 
 });

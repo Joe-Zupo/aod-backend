@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use App\Exceptions\SessionNotReadableException;
 use App\Exceptions\SessionTransitionException;
 use App\Http\Requests\CompleteSessionRequest;
+use App\Http\Requests\StoreSessionRecordingRequest;
 use App\Http\Requests\StoreSessionRequest;
+use App\Http\Resources\RecordingMetaResource;
 use App\Http\Resources\SessionCaptionsResource;
 use App\Http\Resources\SessionResource;
 use App\Http\Resources\SessionTimelineResource;
@@ -357,6 +359,38 @@ class SessionController extends Controller
 
         return $this->success('Session completed.', [
             'session' => new SessionResource($session->load('activeParticipants.user')),
+        ]);
+    }
+
+    /**
+     * Upload Recording
+     *
+     * Self-service per-player media delivery: the authenticated caller
+     * uploads their own audio and/or video for a session they are actively
+     * recording in. Independent of the coach's completion call. Restricted
+     * to the caller's own participant row; rejected with 422 unless that
+     * row is currently `recording` and has not left. See
+     * docs/adr/0012-per-player-recording-uploads.md.
+     */
+    public function uploadRecording(StoreSessionRecordingRequest $request, Session $session): JsonResponse
+    {
+        $this->authorize('uploadRecording', $session);
+
+        try {
+            $result = $session->uploadRecording(
+                $request->user(),
+                $request->file('audio'),
+                $request->file('video'),
+                $request->validated('audio_client_started_at'),
+                $request->validated('video_client_started_at'),
+            );
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Recording uploaded.', [
+            'aod' => $result['aod'] ? new RecordingMetaResource($result['aod']) : null,
+            'vod' => $result['vod'] ? new RecordingMetaResource($result['vod']) : null,
         ]);
     }
 
