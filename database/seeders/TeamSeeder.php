@@ -17,6 +17,10 @@ class TeamSeeder extends Seeder
      */
     public function run(): void
     {
+        if (Team::where('team_name', 'Thunderbolts')->exists()) {
+            return;
+        }
+
         DB::transaction(function (): void {
             $team = Team::create(['team_name' => 'Thunderbolts']);
 
