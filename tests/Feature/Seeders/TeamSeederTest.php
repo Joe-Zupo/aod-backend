@@ -24,8 +24,8 @@ class TeamSeederTest extends TestCase
 
     public function test_running_it_twice_does_not_duplicate_the_demo_team_or_its_members(): void
     {
-        (new TeamSeeder())->run();
-        (new TeamSeeder())->run();
+        (new TeamSeeder)->run();
+        (new TeamSeeder)->run();
 
         $this->assertSame(1, Team::where('team_name', 'Thunderbolts')->count());
         $this->assertSame(1, User::where('username', 'maincoach')->count());
