@@ -116,6 +116,61 @@ class SessionRecordingUploadTest extends TestCase
             ->assertJsonStructure(['data' => ['errors']]);
     }
 
+    public function test_a_coach_cannot_upload_a_recording(): void
+    {
+        [, $coach, $session] = $this->recordingSessionWithOnePlayer();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'You are not eligible to upload a recording for this session.');
+    }
+
+    public function test_a_player_who_has_not_yet_consented_cannot_upload(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
+        $this->addParticipant($session, $coach, 'main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT);
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
+            ])
+            ->assertStatus(422);
+    }
+
+    public function test_a_participant_already_swept_to_completed_cannot_upload(): void
+    {
+        [, , $session, $player, $participant] = $this->recordingSessionWithOnePlayer();
+        $participant->update(['participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED]);
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'You are not eligible to upload a recording for this session.');
+    }
+
+    public function test_a_participant_who_left_cannot_upload_even_while_still_marked_recording(): void
+    {
+        [, , $session, $player, $participant] = $this->recordingSessionWithOnePlayer();
+        $participant->update(['left_at' => now()]); // participant_status stays 'recording' — see SessionParticipant::leave()
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'You are not eligible to upload a recording for this session.');
+
+        $this->assertDatabaseCount('aod_records', 0);
+    }
+
     /**
      * @return array{0: Team, 1: User, 2: Session, 3: User, 4: SessionParticipant}
      */
