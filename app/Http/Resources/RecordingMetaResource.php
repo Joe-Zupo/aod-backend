@@ -23,6 +23,7 @@ class RecordingMetaResource extends JsonResource
             'original_filename' => $this->original_filename,
             'mime_type' => $this->mime_type,
             'size_bytes' => (int) $this->size_bytes,
+            'client_started_at' => $this->client_started_at?->toIso8601String(),
         ];
     }
 }
