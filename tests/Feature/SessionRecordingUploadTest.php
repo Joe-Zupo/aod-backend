@@ -227,6 +227,30 @@ class SessionRecordingUploadTest extends TestCase
         $this->assertDatabaseHas('vod_records', ['session_participant_id' => $participant->id]);
     }
 
+    public function test_client_started_at_is_persisted_per_file(): void
+    {
+        [, , $session, $player, $participant] = $this->recordingSessionWithOnePlayer();
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
+                'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
+                'audio_client_started_at' => '2026-09-12T10:00:00.250Z',
+                'video_client_started_at' => '2026-09-12T10:00:00.400Z',
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseHas('aod_records', ['session_participant_id' => $participant->id]);
+        $this->assertDatabaseHas('vod_records', ['session_participant_id' => $participant->id]);
+
+        $aod = \App\Models\AodRecord::where('session_participant_id', $participant->id)->first();
+        $vod = \App\Models\VodRecord::where('session_participant_id', $participant->id)->first();
+        $this->assertNotNull($aod->client_started_at);
+        $this->assertNotNull($vod->client_started_at);
+        $this->assertSame('2026-09-12 10:00:00', $aod->client_started_at->format('Y-m-d H:i:s'));
+        $this->assertSame('2026-09-12 10:00:00', $vod->client_started_at->format('Y-m-d H:i:s'));
+    }
+
     /**
      * @return array{0: Team, 1: User, 2: Session, 3: User, 4: SessionParticipant}
      */
