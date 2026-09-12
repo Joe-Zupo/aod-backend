@@ -171,6 +171,62 @@ class SessionRecordingUploadTest extends TestCase
         $this->assertDatabaseCount('aod_records', 0);
     }
 
+    public function test_reuploading_audio_replaces_the_row_not_duplicates_it(): void
+    {
+        [, , $session, $player, $participant] = $this->recordingSessionWithOnePlayer();
+
+        $this->actingAs($player, 'sanctum')->postJson("/api/sessions/{$session->id}/recording", [
+            'audio' => UploadedFile::fake()->create('first.mp3', 16, 'audio/mpeg'),
+        ])->assertOk();
+
+        $this->actingAs($player, 'sanctum')->postJson("/api/sessions/{$session->id}/recording", [
+            'audio' => UploadedFile::fake()->create('second.mp3', 16, 'audio/mpeg'),
+        ])->assertOk()
+            ->assertJsonPath('data.aod.original_filename', 'second.mp3');
+
+        $this->assertDatabaseCount('aod_records', 1);
+        $this->assertDatabaseHas('aod_records', [
+            'session_participant_id' => $participant->id,
+            'original_filename' => 'second.mp3',
+        ]);
+    }
+
+    public function test_reuploading_with_a_different_extension_deletes_the_old_file(): void
+    {
+        [, , $session, $player] = $this->recordingSessionWithOnePlayer();
+
+        $this->actingAs($player, 'sanctum')->postJson("/api/sessions/{$session->id}/recording", [
+            'audio' => UploadedFile::fake()->create('first.wav', 16, 'audio/wav'),
+        ])->assertOk();
+
+        Storage::disk('local')->assertExists("session-recordings/{$session->id}/{$player->id}/aod.wav");
+
+        $this->actingAs($player, 'sanctum')->postJson("/api/sessions/{$session->id}/recording", [
+            'audio' => UploadedFile::fake()->create('second.mp3', 16, 'audio/mpeg'),
+        ])->assertOk();
+
+        Storage::disk('local')->assertMissing("session-recordings/{$session->id}/{$player->id}/aod.wav");
+        Storage::disk('local')->assertExists("session-recordings/{$session->id}/{$player->id}/aod.mp3");
+    }
+
+    public function test_uploading_video_after_audio_keeps_both_records(): void
+    {
+        [, , $session, $player, $participant] = $this->recordingSessionWithOnePlayer();
+
+        $this->actingAs($player, 'sanctum')->postJson("/api/sessions/{$session->id}/recording", [
+            'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
+        ])->assertOk();
+
+        $this->actingAs($player, 'sanctum')->postJson("/api/sessions/{$session->id}/recording", [
+            'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
+        ])->assertOk()
+            ->assertJsonPath('data.aod.original_filename', 'a.mp3')
+            ->assertJsonPath('data.vod.original_filename', 'v.mp4');
+
+        $this->assertDatabaseHas('aod_records', ['session_participant_id' => $participant->id]);
+        $this->assertDatabaseHas('vod_records', ['session_participant_id' => $participant->id]);
+    }
+
     /**
      * @return array{0: Team, 1: User, 2: Session, 3: User, 4: SessionParticipant}
      */
