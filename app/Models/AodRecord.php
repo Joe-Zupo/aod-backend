@@ -18,7 +18,15 @@ class AodRecord extends Model
         'original_filename',
         'mime_type',
         'size_bytes',
+        'client_started_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'client_started_at' => 'datetime',
+        ];
+    }
 
     public function sessionParticipant(): BelongsTo
     {
