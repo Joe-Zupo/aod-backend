@@ -45,7 +45,7 @@ class DemoSessionSeederTest extends TestCase
         $this->runDemoSeeder();
 
         $session = Session::where('team_id', $this->thunderbolts()->id)
-            ->where('status', Session::STATUS_ANALYSIS_READY)
+            ->where('session_name', DemoSessionSeeder::analysisReadySessionName(1))
             ->sole();
 
         $recorded = $session->participants()->where('participant_role', 'player')->get();
@@ -65,7 +65,7 @@ class DemoSessionSeederTest extends TestCase
         $this->runDemoSeeder();
 
         $session = Session::where('team_id', $this->thunderbolts()->id)
-            ->where('status', Session::STATUS_ANALYSIS_READY)
+            ->where('session_name', DemoSessionSeeder::analysisReadySessionName(1))
             ->sole();
 
         $types = $session->commEventsQuery()->pluck('communication_type')->unique()->sort()->values()->all();
@@ -81,7 +81,7 @@ class DemoSessionSeederTest extends TestCase
         $this->runDemoSeeder();
 
         $session = Session::where('team_id', $this->thunderbolts()->id)
-            ->where('status', Session::STATUS_ANALYSIS_READY)
+            ->where('session_name', DemoSessionSeeder::analysisReadySessionName(1))
             ->sole();
 
         $types = $session->gameEvents()->pluck('type')->all();
@@ -95,7 +95,7 @@ class DemoSessionSeederTest extends TestCase
         $this->runDemoSeeder();
 
         $session = Session::where('team_id', $this->thunderbolts()->id)
-            ->where('status', Session::STATUS_ANALYSIS_READY)
+            ->where('session_name', DemoSessionSeeder::analysisReadySessionName(1))
             ->sole();
 
         $periods = $session->deadAirPeriods()->get();
@@ -114,7 +114,7 @@ class DemoSessionSeederTest extends TestCase
         $this->runDemoSeeder();
 
         $session = Session::where('team_id', $this->thunderbolts()->id)
-            ->where('status', Session::STATUS_ANALYSIS_READY)
+            ->where('session_name', DemoSessionSeeder::analysisReadySessionName(1))
             ->sole();
 
         $this->assertTrue($session->allTimestampsReviewed());
@@ -126,7 +126,7 @@ class DemoSessionSeederTest extends TestCase
         $this->runDemoSeeder();
 
         $session = Session::where('team_id', $this->thunderbolts()->id)
-            ->where('status', Session::STATUS_ANALYSIS_READY)
+            ->where('session_name', DemoSessionSeeder::analysisReadySessionName(1))
             ->sole();
 
         $commEventIds = $session->commEventsQuery()->pluck('id');
@@ -152,7 +152,7 @@ class DemoSessionSeederTest extends TestCase
         $this->runDemoSeeder();
 
         $session = Session::where('team_id', $this->thunderbolts()->id)
-            ->where('status', Session::STATUS_ANALYSIS_READY)
+            ->where('session_name', DemoSessionSeeder::analysisReadySessionName(1))
             ->sole();
 
         $compound = $session->commEventsQuery()->where('communication_type', CommEvent::TYPE_COMPOUND)->sole();
@@ -165,6 +165,17 @@ class DemoSessionSeederTest extends TestCase
         $this->assertNotEmpty($alignment->game_event_ids);
     }
 
+    public function test_it_creates_three_analysis_ready_sessions(): void
+    {
+        $this->runDemoSeeder();
+
+        $count = Session::where('team_id', $this->thunderbolts()->id)
+            ->where('status', Session::STATUS_ANALYSIS_READY)
+            ->count();
+
+        $this->assertSame(3, $count);
+    }
+
     public function test_running_it_twice_does_not_duplicate_the_demo_sessions(): void
     {
         $this->runDemoSeeder();
@@ -173,8 +184,8 @@ class DemoSessionSeederTest extends TestCase
         $team = $this->thunderbolts();
 
         $this->assertSame(
-            1,
-            Session::where('team_id', $team->id)->where('session_name', DemoSessionSeeder::ANALYSIS_READY_SESSION_NAME)->count(),
+            3,
+            Session::where('team_id', $team->id)->where('status', Session::STATUS_ANALYSIS_READY)->count(),
         );
     }
 

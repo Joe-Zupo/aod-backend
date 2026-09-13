@@ -18,12 +18,12 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Seeds a fully analysed (`analysis_ready`) demo session on the Thunderbolts
- * team, richly timestamped so a fresh checkout can develop against the Review
- * Board without a live pipeline, plus a second `timeline_ready` session to
- * exercise coach-only gating (issue #20). Requires TeamSeeder to have already
- * run. Skips entirely if the analysis-ready demo session already exists, so
- * re-running `db:seed` is a no-op.
+ * Seeds three fully analysed (`analysis_ready`) demo sessions on the
+ * Thunderbolts team, each richly timestamped so a fresh checkout can develop
+ * against the Review Board without a live pipeline, plus one `timeline_ready`
+ * session to exercise coach-only gating (issue #20). Requires TeamSeeder to
+ * have already run. Skips entirely if the first analysis-ready demo session
+ * already exists, so re-running `db:seed` is a no-op.
  */
 class DemoSessionSeeder extends Seeder
 {
@@ -31,7 +31,14 @@ class DemoSessionSeeder extends Seeder
 
     public const ANALYSIS_READY_SESSION_NAME = 'Demo Analysis Ready';
 
+    public const ANALYSIS_READY_SESSION_COUNT = 3;
+
     public const TIMELINE_READY_SESSION_NAME = 'Demo Timeline Ready';
+
+    public static function analysisReadySessionName(int $n): string
+    {
+        return self::ANALYSIS_READY_SESSION_NAME." {$n}";
+    }
 
     /**
      * Matches Team::ensureSettings()'s default dead_air_threshold /
@@ -46,12 +53,15 @@ class DemoSessionSeeder extends Seeder
     {
         $team = Team::where('team_name', 'Thunderbolts')->firstOrFail();
 
-        if (Session::where('team_id', $team->id)->where('session_name', self::ANALYSIS_READY_SESSION_NAME)->exists()) {
+        if (Session::where('team_id', $team->id)->where('session_name', self::analysisReadySessionName(1))->exists()) {
             return;
         }
 
         DB::transaction(function () use ($team): void {
-            $this->seedAnalysisReadySession($team);
+            for ($n = 1; $n <= self::ANALYSIS_READY_SESSION_COUNT; $n++) {
+                $this->seedAnalysisReadySession($team, self::analysisReadySessionName($n));
+            }
+
             $this->seedTimelineReadySession($team);
         });
     }
@@ -134,14 +144,14 @@ class DemoSessionSeeder extends Seeder
         ]);
     }
 
-    private function seedAnalysisReadySession(Team $team): void
+    private function seedAnalysisReadySession(Team $team, string $sessionName): void
     {
         $mainCoach = User::where('username', 'maincoach')->firstOrFail();
 
         $session = Session::create([
             'team_id' => $team->id,
             'created_by' => $mainCoach->id,
-            'session_name' => self::ANALYSIS_READY_SESSION_NAME,
+            'session_name' => $sessionName,
             'status' => Session::STATUS_ANALYSIS_READY,
         ]);
         $session->timeline()->create();

@@ -4,26 +4,27 @@ namespace Tests\Feature\Seeders;
 
 use App\Models\Session;
 use App\Models\Team;
+use Database\Seeders\DemoSessionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
  * The full `php artisan db:seed` chain (issue #20): a fresh DB gets the demo
- * team plus an analysis_ready and a timeline_ready demo session, and running
- * it again is a no-op rather than a duplicate.
+ * team plus three analysis_ready demo sessions and one timeline_ready demo
+ * session, and running it again is a no-op rather than a duplicate.
  */
 class DatabaseSeederTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_a_fresh_seed_yields_the_demo_team_and_both_demo_sessions(): void
+    public function test_a_fresh_seed_yields_the_demo_team_and_all_demo_sessions(): void
     {
         $this->seed();
 
         $team = Team::where('team_name', 'Thunderbolts')->sole();
 
         $this->assertSame(
-            1,
+            DemoSessionSeeder::ANALYSIS_READY_SESSION_COUNT,
             Session::where('team_id', $team->id)->where('status', Session::STATUS_ANALYSIS_READY)->count(),
         );
         $this->assertSame(
@@ -39,6 +40,9 @@ class DatabaseSeederTest extends TestCase
 
         $team = Team::where('team_name', 'Thunderbolts')->sole();
 
-        $this->assertSame(2, Session::where('team_id', $team->id)->count());
+        $this->assertSame(
+            DemoSessionSeeder::ANALYSIS_READY_SESSION_COUNT + 1,
+            Session::where('team_id', $team->id)->count(),
+        );
     }
 }
