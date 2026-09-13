@@ -62,4 +62,21 @@ class UserController extends Controller
             'teams' => TeamResource::collection($request->user()->activeTeams()->get()),
         ]);
     }
+
+    /**
+     * Membership Return
+     *
+     * Return the authenticated user's current team membership: the team and
+     * status of their sole pending or active membership, or both null if
+     * they have neither (whether never joined, rejected, or removed).
+     */
+    public function membership(Request $request): JsonResponse
+    {
+        $team = $request->user()->pendingOrActiveTeams()->first();
+
+        return $this->success('Membership retrieved.', [
+            'team' => $team ? new TeamResource($team) : null,
+            'team_membership_status' => $team?->pivot->status,
+        ]);
+    }
 }

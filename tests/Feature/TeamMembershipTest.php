@@ -251,4 +251,72 @@ class TeamMembershipTest extends TestCase
         $this->actingAs($player, 'sanctum')->postJson('/api/teams/join', ['team_code' => 'TM-AODTEAM1'])
             ->assertUnprocessable();
     }
+
+    public function test_pending_membership_is_visible_via_me_membership(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+        $player = User::factory()->create();
+        $player->assignRole('Player');
+
+        $this->actingAs($player, 'sanctum')->postJson('/api/teams/join', ['team_code' => 'TM-AODTEAM1'])
+            ->assertOk();
+
+        $this->actingAs($player, 'sanctum')->getJson('/api/me/membership')
+            ->assertOk()
+            ->assertJsonPath('data.team_membership_status', 'pending')
+            ->assertJsonPath('data.team.id', $team->id);
+    }
+
+    public function test_active_membership_is_visible_via_me_membership(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+
+        $this->actingAs($coach, 'sanctum')->getJson('/api/me/membership')
+            ->assertOk()
+            ->assertJsonPath('data.team_membership_status', 'active')
+            ->assertJsonPath('data.team.id', $team->id);
+    }
+
+    public function test_teamless_user_has_no_membership(): void
+    {
+        $player = User::factory()->create();
+        $player->assignRole('Player');
+
+        $this->actingAs($player, 'sanctum')->getJson('/api/me/membership')
+            ->assertOk()
+            ->assertJsonPath('data.team_membership_status', null)
+            ->assertJsonPath('data.team', null);
+    }
+
+    public function test_rejected_membership_is_not_visible_via_me_membership(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+        $player = User::factory()->create();
+        $player->assignRole('Player');
+
+        $this->actingAs($player, 'sanctum')->postJson('/api/teams/join', ['team_code' => 'TM-AODTEAM1']);
+        $this->actingAs($coach, 'sanctum')
+            ->putJson("/api/teams/join-requests/{$player->id}", ['action' => 'reject'])
+            ->assertOk();
+
+        $this->actingAs($player, 'sanctum')->getJson('/api/me/membership')
+            ->assertOk()
+            ->assertJsonPath('data.team_membership_status', null)
+            ->assertJsonPath('data.team', null);
+    }
+
+    public function test_removed_membership_is_not_visible_via_me_membership(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+        $player = User::factory()->create();
+        $player->assignRole('Player');
+        $team->members()->attach($player, ['member_role' => 'player', 'status' => 'active', 'joined_at' => now()]);
+
+        $this->actingAs($player, 'sanctum')->postJson('/api/teams/leave')->assertOk();
+
+        $this->actingAs($player, 'sanctum')->getJson('/api/me/membership')
+            ->assertOk()
+            ->assertJsonPath('data.team_membership_status', null)
+            ->assertJsonPath('data.team', null);
+    }
 }

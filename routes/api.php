@@ -22,6 +22,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/me', [UserController::class, 'update']);
     Route::put('/me/password', [UserController::class, 'updatePassword']);
     Route::get('/me/teams', [UserController::class, 'teams']);
+    Route::get('/me/membership', [UserController::class, 'membership']);
 
     // Team dashboard (issue #17). Both act on the caller's active team via
     // resolveTeam(), ?team={id} override, and serve any active member. Only
