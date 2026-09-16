@@ -235,6 +235,7 @@ class SessionController extends Controller
                 Session::TRANSITION_REANALYZE => $session->reanalyze(),
                 Session::STATUS_ANALYSIS_READY => $session->markAnalysisReady(),
                 Session::STATUS_TIMELINE_READY => $session->reopenReview(),
+                Session::STATUS_QUEUING => $session->stopRecording(),
             };
         } catch (SessionTransitionException $e) {
             return $this->error($e->getMessage(), 422);

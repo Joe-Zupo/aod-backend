@@ -407,4 +407,27 @@ class SessionBroadcastingTest extends TestCase
             },
         );
     }
+
+    public function test_the_coach_stopping_recording_broadcasts_once_per_active_participant(): void
+    {
+        Event::fake([SessionParticipantStatusChanged::class, SessionStatusChanged::class]);
+
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $one = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $two = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, 'in_progress');
+        $this->addParticipant($session, $coach, 'main_coach');
+        foreach ([$one, $two] as $player) {
+            $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
+        }
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'queuing'])
+            ->assertOk();
+
+        // Two players and the Coach: the Coach's reset is a no-op on the value
+        // but still announces, so every client sees one event per seat.
+        Event::assertDispatchedTimes(SessionParticipantStatusChanged::class, 3);
+        Event::assertDispatchedTimes(SessionStatusChanged::class, 1);
+    }
 }

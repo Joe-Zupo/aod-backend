@@ -86,6 +86,7 @@ class Session extends Model
         self::TRANSITION_REANALYZE,
         self::STATUS_ANALYSIS_READY,
         self::STATUS_TIMELINE_READY,
+        self::STATUS_QUEUING,
     ];
 
     public const STATUS_CANCELLED = 'cancelled';
@@ -288,6 +289,31 @@ class Session extends Model
         }
 
         $this->returnToQueuing();
+    }
+
+    /**
+     * End the run and return the session to the lobby, keeping everybody in it.
+     * The Coach's counterpart to `start()`: capture stops, the session becomes
+     * `queuing` again, and it can be started afresh once the team re-consents.
+     *
+     * Distinct from `cancel()`, which ends the session outright. This one is
+     * resumable (docs/adr/0013-recording-control-and-departure.md).
+     *
+     * @throws SessionTransitionException when the session is not in_progress
+     */
+    public function stopRecording(): void
+    {
+        DB::transaction(function () {
+            $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
+
+            if ($status !== self::STATUS_IN_PROGRESS) {
+                throw new SessionTransitionException('Only a recording session can be stopped.');
+            }
+
+            $this->returnToQueuing();
+        });
+
+        $this->flushDiscardedRecordings();
     }
 
     /**
