@@ -16,6 +16,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -362,14 +363,7 @@ class Session extends Model
                 throw new SessionTransitionException('This session can no longer be cancelled.');
             }
 
-            $participantIds = $this->participants()->pluck('id');
-
-            $paths = AodRecord::whereIn('session_participant_id', $participantIds)->pluck('path')
-                ->merge(VodRecord::whereIn('session_participant_id', $participantIds)->pluck('path'))
-                ->all();
-
-            AodRecord::whereIn('session_participant_id', $participantIds)->delete();
-            VodRecord::whereIn('session_participant_id', $participantIds)->delete();
+            $this->discardRecordingsFor($this->participants()->pluck('id'));
 
             $this->update(['status' => self::STATUS_CANCELLED]);
 
@@ -378,12 +372,75 @@ class Session extends Model
             $this->departActiveParticipants();
         });
 
+        $this->flushDiscardedRecordings();
+    }
+
+    /**
+     * Storage paths whose rows this instance has already deleted, waiting to be
+     * unlinked once the surrounding transaction commits.
+     *
+     * @var list<string>
+     */
+    private array $discardedPaths = [];
+
+    /**
+     * Delete every AodRecord/VodRecord belonging to these participants and
+     * remember the storage paths they held, for the caller to unlink once its
+     * transaction has committed. Rows go inside the transaction and files go
+     * after it: a rollback that had already deleted the files would leave rows
+     * pointing at nothing.
+     *
+     * The single seam for "these participants' recordings are gone".
+     *
+     * @return list<string>
+     */
+    private function discardRecordingsFor(Collection $participantIds): array
+    {
+        $paths = AodRecord::whereIn('session_participant_id', $participantIds)->pluck('path')
+            ->merge(VodRecord::whereIn('session_participant_id', $participantIds)->pluck('path'))
+            ->all();
+
+        AodRecord::whereIn('session_participant_id', $participantIds)->delete();
+        VodRecord::whereIn('session_participant_id', $participantIds)->delete();
+
+        $this->discardedPaths = array_merge($this->discardedPaths, $paths);
+
+        return $paths;
+    }
+
+    /**
+     * Discard one participant's recordings, reporting which of the two were
+     * actually there.
+     *
+     * @return array{audio: bool, video: bool}
+     */
+    public function discardRecordingsForParticipant(SessionParticipant $participant): array
+    {
+        $discarded = [
+            'audio' => $participant->aodRecord()->exists(),
+            'video' => $participant->vodRecord()->exists(),
+        ];
+
+        $this->discardRecordingsFor(collect([$participant->getKey()]));
+
+        return $discarded;
+    }
+
+    /**
+     * Unlink everything the discard seam deleted rows for, and forget it.
+     * Called by each entry point once its transaction has committed.
+     */
+    public function flushDiscardedRecordings(): void
+    {
+        $paths = $this->discardedPaths;
+        $this->discardedPaths = [];
+
         foreach ($paths as $path) {
             try {
                 Storage::disk(self::RECORDING_DISK)->delete($path);
             } catch (Throwable) {
                 // A file already gone or an unreachable disk must not undo a
-                // cancellation the DB has already committed.
+                // database change that has already committed.
             }
         }
     }
