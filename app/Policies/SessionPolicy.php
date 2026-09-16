@@ -98,10 +98,18 @@ class SessionPolicy
     }
 
     /**
-     * Any active team member may join, but only while the session is still
-     * queuing — this is the single source of truth for that rule, so any
-     * future caller of authorize('join', $session) gets the right answer
-     * without needing its own status check.
+     * Any active team member may join a session that is still queuing or is
+     * already under way. A mid-run joiner is harmless by construction: they
+     * arrive at `needs_consent`, and `uploadRecording()` gates on the
+     * participant's own `recording` status, so they can deliver nothing until
+     * they consent and start recording themselves (see
+     * docs/adr/0012-per-player-recording-uploads.md,
+     * docs/adr/0013-recording-control-and-departure.md). Nobody joins a session
+     * past recording, where there is no run to take part in.
+     *
+     * The single source of truth for that rule, so any future caller of
+     * authorize('join', $session) gets the right answer without needing its own
+     * status check.
      */
     public function join(User $user, Session $session): Response
     {
@@ -111,7 +119,7 @@ class SessionPolicy
             return $membership;
         }
 
-        return $session->status === Session::STATUS_QUEUING
+        return in_array($session->status, Session::NON_TERMINAL_STATUSES, true)
             ? Response::allow()
             : Response::deny('This session is not open for joining.');
     }

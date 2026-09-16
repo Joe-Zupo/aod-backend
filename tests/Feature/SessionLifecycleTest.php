@@ -349,11 +349,90 @@ class SessionLifecycleTest extends TestCase
         $this->assertDatabaseCount('session_participants', 0);
     }
 
-    public function test_joining_a_non_queuing_session_is_forbidden(): void
+    public function test_a_coach_can_join_an_in_progress_session_to_take_over_the_run(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $replacement = $this->makeAndAttachMember($team, 'assistant_coach', 'Coach', $coach);
+        $session = $this->createSession($team, $coach, 'in_progress');
+
+        $this->actingAs($replacement, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/join")
+            ->assertOk();
+
+        $this->assertDatabaseHas('session_participants', [
+            'session_id' => $session->id,
+            'user_id' => $replacement->id,
+            'participant_role' => 'assistant_coach',
+            'participant_status' => 'ready',
+            'left_at' => null,
+        ]);
+    }
+
+    public function test_a_coach_cannot_join_a_session_past_recording(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $latecomer = $this->makeAndAttachMember($team, 'assistant_coach', 'Coach', $coach);
+        $session = $this->createSession($team, $coach, 'processing');
+
+        $this->actingAs($latecomer, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/join")
+            ->assertForbidden();
+
+        $this->assertDatabaseCount('session_participants', 0);
+    }
+
+    public function test_a_player_can_join_a_session_already_under_way(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
         $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
         $session = $this->createSession($team, $coach, 'in_progress');
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/join")
+            ->assertOk();
+
+        // They arrive owing nothing: the completion roster is whoever is
+        // recording, and a joiner consents before they can start
+        // (docs/adr/0013-recording-control-and-departure.md).
+        $this->assertDatabaseHas('session_participants', [
+            'session_id' => $session->id,
+            'user_id' => $player->id,
+            'participant_status' => 'needs_consent',
+            'left_at' => null,
+        ]);
+    }
+
+    public function test_a_player_who_left_can_rejoin_a_session_already_under_way(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $other = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, 'in_progress');
+        $this->addParticipant($session, $coach, 'main_coach');
+        $this->addParticipant($session, $other, 'player', 'recording');
+        $this->addParticipant($session, $player, 'player', 'recording');
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/leave")
+            ->assertOk();
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/join")
+            ->assertOk();
+
+        $this->assertDatabaseHas('session_participants', [
+            'session_id' => $session->id,
+            'user_id' => $player->id,
+            'participant_status' => 'needs_consent',
+            'left_at' => null,
+        ]);
+    }
+
+    public function test_joining_a_session_past_recording_is_forbidden(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, 'processing');
 
         $this->actingAs($player, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/join")
