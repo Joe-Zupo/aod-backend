@@ -100,6 +100,13 @@ class Session extends Model
     public const STATUS_CANCELLED = 'cancelled';
 
     /**
+     * The two statuses of a run: capture under way, and capture ended with
+     * uploads still arriving. Both return to `queuing` when the Coach stops
+     * the run or nobody is left recording (ADR 0013, ADR 0015).
+     */
+    public const RUN_STATUSES = [self::STATUS_IN_PROGRESS, self::STATUS_DELIVERING];
+
+    /**
      * The statuses that count as a live session for the team: they block a
      * second session, drive the index's live_session slot, and keep the
      * auto-cancel and consent windows open. `processing` is deliberately not
@@ -107,13 +114,6 @@ class Session extends Model
      * done and stored, so the team is free to start the next scrim while
      * analysis runs in the background.
      */
-    /**
-     * The two statuses of a run: capture under way, and capture ended with
-     * uploads still arriving. Both return to `queuing` when the Coach stops
-     * the run or nobody is left recording (ADR 0013, ADR 0015).
-     */
-    public const RUN_STATUSES = [self::STATUS_IN_PROGRESS, self::STATUS_DELIVERING];
-
     public const NON_TERMINAL_STATUSES = [self::STATUS_QUEUING, self::STATUS_IN_PROGRESS, self::STATUS_DELIVERING];
 
     /**
@@ -128,12 +128,14 @@ class Session extends Model
         'session_name',
         'session_code',
         'status',
+        'started_at',
         'analysis_ready_at',
         'game_alignment_assessed_at',
         'dead_air_detected_at',
     ];
 
     protected $casts = [
+        'started_at' => 'datetime',
         'analysis_ready_at' => 'datetime',
         'game_alignment_assessed_at' => 'datetime',
         'dead_air_detected_at' => 'datetime',
@@ -197,8 +199,9 @@ class Session extends Model
     }
 
     /**
-     * Sessions still in flight (queuing, in_progress or delivering) — the single place
-     * that defines "does this team have a session blocking a new one."
+     * Sessions still in flight (queuing, in_progress or delivering) — the
+     * single place that defines "does this team have a session blocking a new
+     * one."
      */
     public function scopeNonTerminal(Builder $query): Builder
     {
@@ -373,7 +376,7 @@ class Session extends Model
      */
     private function returnToQueuing(): void
     {
-        $this->update(['status' => self::STATUS_QUEUING]);
+        $this->update(['status' => self::STATUS_QUEUING, 'started_at' => null]);
 
         Broadcasting::safely(new SessionStatusChanged($this));
 
@@ -466,7 +469,7 @@ class Session extends Model
                 throw new SessionTransitionException('Every player must consent before the session can start.');
             }
 
-            $this->update(['status' => self::STATUS_IN_PROGRESS]);
+            $this->update(['status' => self::STATUS_IN_PROGRESS, 'started_at' => now()]);
 
             Broadcasting::safely(new SessionStatusChanged($this));
 

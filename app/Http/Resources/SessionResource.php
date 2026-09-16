@@ -19,6 +19,8 @@ class SessionResource extends JsonResource
             'session_name' => $this->session_name,
             'status' => $this->status,
             'created_at' => $this->created_at,
+            // When the current run began: null in the lobby (ADR 0015).
+            'started_at' => $this->started_at,
             'participants' => SessionParticipantResource::collection($this->whenLoaded('activeParticipants')),
             // Only a processing session runs the aggregate query; every other
             // state omits the key entirely.
