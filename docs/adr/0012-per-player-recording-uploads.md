@@ -75,9 +75,10 @@ to give for free.
   past that status. This is intentional: once a session has moved to
   `processing`, there is no coherent point in its lifecycle for a fresh
   recording to land.
-- A participant who leaves mid-recording (`left_at` set, `participant_status`
-  unchanged — see `SessionParticipant::leave()`) can no longer upload, even
-  though their `participant_status` alone would still read `recording`.
+- A participant who leaves mid-recording can no longer upload.
+  **Amended by ADR 0013:** leaving now also resets `participant_status` and
+  discards whatever that participant had already uploaded, so a departed row no
+  longer reads `recording` and its files do not survive to be transcribed.
 - `CompleteSessionRequest` and `SessionController::complete()` both shrink
   substantially; the removed `assertRosterMatch()` guard (ADR 0003) has no
   replacement, because there is no longer an external roster to validate
