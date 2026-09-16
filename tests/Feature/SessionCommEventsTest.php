@@ -202,6 +202,13 @@ class SessionCommEventsTest extends TestCase
 
         $this->assertSame(Session::STATUS_TIMELINE_READY, $session->fresh()->status);
 
+        // The timeline is ready, so participation is over for everyone still
+        // in the session (ADR 0015).
+        $this->assertSame(
+            [SessionParticipant::PARTICIPANT_STATUS_COMPLETED],
+            $session->participants()->pluck('participant_status')->unique()->values()->all(),
+        );
+
         $transcript = Transcript::sole();
         $this->assertTrue((bool) $transcript->comm_events_detected);
 
@@ -315,8 +322,8 @@ class SessionCommEventsTest extends TestCase
         $session = $this->createSession($team, $coach, Session::STATUS_PROCESSING);
         $this->addParticipant($session, $coach, 'main_coach');
 
-        $done = $this->addParticipant($session, $this->makeAndAttachMember($team, 'player', 'Player', $coach), 'player', SessionParticipant::PARTICIPANT_STATUS_COMPLETED);
-        $running = $this->addParticipant($session, $this->makeAndAttachMember($team, 'player', 'Player', $coach), 'player', SessionParticipant::PARTICIPANT_STATUS_COMPLETED);
+        $done = $this->addParticipant($session, $this->makeAndAttachMember($team, 'player', 'Player', $coach), 'player', SessionParticipant::PARTICIPANT_STATUS_ENDING);
+        $running = $this->addParticipant($session, $this->makeAndAttachMember($team, 'player', 'Player', $coach), 'player', SessionParticipant::PARTICIPANT_STATUS_ENDING);
 
         Transcript::factory()->for(AodRecord::factory()->for($done))->completed()->create(['comm_events_detected' => true]);
         Transcript::factory()->for(AodRecord::factory()->for($running))->processing('txn_run')->create();

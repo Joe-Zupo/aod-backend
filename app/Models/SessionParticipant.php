@@ -22,6 +22,12 @@ class SessionParticipant extends Model
 
     public const PARTICIPANT_STATUS_RECORDING = 'recording';
 
+    /**
+     * The session is over for this participant and its analysis is still
+     * running: held exactly while the session is `processing` (ADR 0015).
+     */
+    public const PARTICIPANT_STATUS_ENDING = 'ending';
+
     public const PARTICIPANT_STATUS_COMPLETED = 'completed';
 
     /**
@@ -35,23 +41,27 @@ class SessionParticipant extends Model
      * only ever takes one of these edges or stays put; it never steps back and
      * never skips a status it was meant to pass through.
      *
-     * Every status reaches `completed`, because it means "this session is over
-     * for me" rather than "I finished recording": a Coach never records, a
-     * player who stopped early is back at `needs_consent`, and the session ends
-     * for both of them (docs/adr/0014-participation-lifecycle.md). Reaching
-     * `completed` from `needs_consent` is not a consent loophole — it ends
+     * Every status before it reaches `ending`, because it means "this session
+     * is over for me" rather than "I finished recording": a Coach never
+     * records, a player who stopped early is back at `needs_consent`, and the
+     * session ends for both of them (docs/adr/0014-participation-lifecycle.md).
+     * Reaching `ending` from `needs_consent` is not a consent loophole — it ends
      * participation rather than granting it, and `start()` still requires
-     * `ready`. Nothing follows `completed`.
+     * `ready`. `completed` follows `ending` once the session's timeline is
+     * ready, and only then (docs/adr/0015-end-of-run-and-end-of-participation.md).
+     * Nothing follows `completed`.
      *
-     * `recording` and `completed` are driven by the session start sweep and the
-     * completion endpoint, not by the participant.
+     * `recording`, `ending` and `completed` are driven by session-wide sweeps
+     * (start, completion, the move to `timeline_ready`), not by the
+     * participant.
      *
      * @var array<string, list<string>>
      */
     public const PARTICIPANT_STATUS_TRANSITIONS = [
-        self::PARTICIPANT_STATUS_NEEDS_CONSENT => [self::PARTICIPANT_STATUS_READY, self::PARTICIPANT_STATUS_COMPLETED],
-        self::PARTICIPANT_STATUS_READY => [self::PARTICIPANT_STATUS_RECORDING, self::PARTICIPANT_STATUS_COMPLETED],
-        self::PARTICIPANT_STATUS_RECORDING => [self::PARTICIPANT_STATUS_COMPLETED],
+        self::PARTICIPANT_STATUS_NEEDS_CONSENT => [self::PARTICIPANT_STATUS_READY, self::PARTICIPANT_STATUS_ENDING],
+        self::PARTICIPANT_STATUS_READY => [self::PARTICIPANT_STATUS_RECORDING, self::PARTICIPANT_STATUS_ENDING],
+        self::PARTICIPANT_STATUS_RECORDING => [self::PARTICIPANT_STATUS_ENDING],
+        self::PARTICIPANT_STATUS_ENDING => [self::PARTICIPANT_STATUS_COMPLETED],
         self::PARTICIPANT_STATUS_COMPLETED => [],
     ];
 

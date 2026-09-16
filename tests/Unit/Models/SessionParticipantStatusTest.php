@@ -287,7 +287,7 @@ class SessionParticipantStatusTest extends TestCase
         $this->assertSame(SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT, $goneRow->fresh()->participant_status);
     }
 
-    public function test_a_participant_who_never_recorded_can_still_be_completed(): void
+    public function test_a_participant_who_never_recorded_can_still_end(): void
     {
         $team = $this->team();
         $coach = $this->member($team, 'main_coach');
@@ -298,18 +298,17 @@ class SessionParticipantStatusTest extends TestCase
             'participant_status' => SessionParticipant::PARTICIPANT_STATUS_READY,
         ]);
 
-        // `completed` says the session is over for this participant, not that
-        // they recorded, so `ready` reaches it directly
-        // (docs/adr/0014-participation-lifecycle.md).
-        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_COMPLETED);
+        // `ending` says the session is over for this participant, not that
+        // they recorded, so `ready` reaches it directly (ADR 0014, ADR 0015).
+        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_ENDING);
 
         $this->assertSame(
-            SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+            SessionParticipant::PARTICIPANT_STATUS_ENDING,
             $participant->fresh()->participant_status,
         );
     }
 
-    public function test_a_participant_who_never_consented_is_still_completed_when_the_session_ends(): void
+    public function test_a_participant_who_never_consented_still_ends_when_the_session_does(): void
     {
         $team = $this->team();
         $player = $this->member($team, 'player');
@@ -322,10 +321,10 @@ class SessionParticipantStatusTest extends TestCase
 
         // Ending participation is not granting it: `start()` still requires
         // `ready`, so this edge is no consent loophole.
-        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_COMPLETED);
+        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_ENDING);
 
         $this->assertSame(
-            SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+            SessionParticipant::PARTICIPANT_STATUS_ENDING,
             $participant->fresh()->participant_status,
         );
     }
@@ -345,6 +344,39 @@ class SessionParticipantStatusTest extends TestCase
         $this->expectExceptionMessage('A participant cannot move from needs_consent to recording.');
 
         $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_RECORDING);
+    }
+
+    public function test_ending_is_followed_by_completed(): void
+    {
+        $team = $this->team();
+        $player = $this->member($team, 'player');
+        $session = Session::factory()->for($team)->create();
+        $participant = SessionParticipant::factory()->for($session)->create([
+            'user_id' => $player->id,
+            'participant_role' => 'player',
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_ENDING,
+        ]);
+
+        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_COMPLETED);
+
+        $this->assertSame(SessionParticipant::PARTICIPANT_STATUS_COMPLETED, $participant->fresh()->participant_status);
+    }
+
+    public function test_completed_is_reached_only_through_ending(): void
+    {
+        $team = $this->team();
+        $player = $this->member($team, 'player');
+        $session = Session::factory()->for($team)->create();
+        $participant = SessionParticipant::factory()->for($session)->create([
+            'user_id' => $player->id,
+            'participant_role' => 'player',
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_RECORDING,
+        ]);
+
+        $this->expectException(SessionTransitionException::class);
+        $this->expectExceptionMessage('A participant cannot move from recording to completed.');
+
+        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_COMPLETED);
     }
 
     public function test_nothing_follows_completed(): void

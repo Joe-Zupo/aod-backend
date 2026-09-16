@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Events\SessionParticipantStatusChanged;
 use App\Jobs\DetectCommEvents;
 use App\Models\AodRecord;
 use App\Models\CommEvent;
@@ -13,6 +14,7 @@ use App\Models\Transcript;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Event;
 use Spatie\Permission\Models\Role;
 use Tests\Concerns\CreatesTeamsAndSessions;
 use Tests\TestCase;
@@ -155,6 +157,34 @@ class SessionReanalyzeTest extends TestCase
         $this->assertSame(Session::STATUS_PROCESSING, $session->fresh()->status);
         $this->assertFalse((bool) $completed->fresh()->comm_events_detected);
         Bus::assertDispatched(DetectCommEvents::class, 1);
+    }
+
+    public function test_reanalyze_returns_everyone_still_in_the_session_to_ending(): void
+    {
+        Bus::fake();
+        Event::fake([SessionParticipantStatusChanged::class]);
+
+        [$team, $coach, $session, $player] = $this->readySession();
+        $session->participants()->where('user_id', $coach->id)->update(['participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED]);
+        $gone = $this->addParticipant(
+            $session,
+            $this->makeAndAttachMember($team, 'player', 'Player', $coach),
+            'player',
+            SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+        );
+        $gone->update(['left_at' => now()]);
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'reanalyze'])
+            ->assertStatus(202);
+
+        $this->assertSame(SessionParticipant::PARTICIPANT_STATUS_ENDING, $player->fresh()->participant_status);
+        $this->assertSame(
+            SessionParticipant::PARTICIPANT_STATUS_ENDING,
+            $session->participants()->where('user_id', $coach->id)->value('participant_status'),
+        );
+        $this->assertSame(SessionParticipant::PARTICIPANT_STATUS_COMPLETED, $gone->fresh()->participant_status);
+        Event::assertDispatchedTimes(SessionParticipantStatusChanged::class, 2);
     }
 
     public function test_reanalyze_is_forbidden_for_a_player(): void

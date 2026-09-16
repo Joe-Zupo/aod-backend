@@ -381,7 +381,7 @@ class SessionBroadcastingTest extends TestCase
         Event::assertDispatched(
             SessionParticipantStatusChanged::class,
             fn ($event) => $event->participant->user_id === $coach->id
-                && $event->participant->participant_status === SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+                && $event->participant->participant_status === SessionParticipant::PARTICIPANT_STATUS_ENDING,
         );
     }
 

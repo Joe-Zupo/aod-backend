@@ -77,6 +77,8 @@ class AdvanceSessionAfterProcessing implements ShouldQueue
 
             $this->session->update(['status' => Session::STATUS_TIMELINE_READY]);
 
+            $this->session->completeParticipation();
+
             return ['assess' => false, 'dead_air' => false, 'advanced' => true];
         });
 

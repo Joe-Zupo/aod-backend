@@ -683,7 +683,8 @@ class Session extends Model
             // Everyone still in the session, not just whoever recorded: the
             // session is over for the Coach and for a player who stopped early
             // as much as for the players who delivered files
-            // (docs/adr/0014-participation-lifecycle.md). A departed row is left
+            // (docs/adr/0014-participation-lifecycle.md). They are `ending`
+            // until the timeline is ready (ADR 0015). A departed row is left
             // alone — it was not here when the session ended, and `left_at`
             // already says so.
             $this->participants()
@@ -691,7 +692,7 @@ class Session extends Model
                 ->with('user')
                 ->get()
                 ->each(fn (SessionParticipant $swept) => $swept->advanceStatusTo(
-                    SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+                    SessionParticipant::PARTICIPANT_STATUS_ENDING,
                 ));
         });
 
@@ -701,6 +702,25 @@ class Session extends Model
         foreach ($transcripts as $transcript) {
             SubmitTranscription::dispatch($transcript);
         }
+    }
+
+    /**
+     * End participation for everyone still in this session: every active
+     * `ending` row moves to `completed`. Called by the fan-in in the same
+     * transaction that moves the session to `timeline_ready`, because a
+     * participant is `ending` only while its session is `processing`
+     * (docs/adr/0015-end-of-run-and-end-of-participation.md).
+     */
+    public function completeParticipation(): void
+    {
+        $this->participants()
+            ->whereNull('left_at')
+            ->where('participant_status', SessionParticipant::PARTICIPANT_STATUS_ENDING)
+            ->with('user')
+            ->get()
+            ->each(fn (SessionParticipant $participant) => $participant->advanceStatusTo(
+                SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+            ));
     }
 
     /**
@@ -777,6 +797,18 @@ class Session extends Model
                 'game_alignment_assessed_at' => null,
                 'dead_air_detected_at' => null,
             ]);
+
+            // A participant is `ending` exactly while the session is
+            // `processing`, so the rebuild takes everyone still in the session
+            // back there until the fan-in completes them again (ADR 0015).
+            $this->participants()
+                ->whereNull('left_at')
+                ->where('participant_status', '!=', SessionParticipant::PARTICIPANT_STATUS_ENDING)
+                ->with('user')
+                ->get()
+                ->each(fn (SessionParticipant $participant) => $participant->resetStatus(
+                    SessionParticipant::PARTICIPANT_STATUS_ENDING,
+                ));
 
             Broadcasting::safely(new SessionStatusChanged($this));
 

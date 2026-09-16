@@ -21,9 +21,9 @@ use Tests\TestCase;
  * Completion of a delivering Session: game_events only
  * (docs/adr/0012-per-player-recording-uploads.md moved file delivery to
  * POST /sessions/{session}/recording). The Session moves delivering ->
- * processing (docs/adr/0015-end-of-run-and-end-of-participation.md) and every recording participant is swept to completed once at
- * least one already-stored AodRecord/VodRecord pair belongs to the same
- * participant.
+ * processing and every active participant is swept to ending once at least
+ * one already-stored AodRecord/VodRecord pair belongs to a participant still
+ * recording (docs/adr/0015-end-of-run-and-end-of-participation.md).
  */
 class SessionCompletionTest extends TestCase
 {
@@ -57,12 +57,12 @@ class SessionCompletionTest extends TestCase
         foreach ($players as $player) {
             $this->assertDatabaseHas('session_participants', [
                 'user_id' => $player->id,
-                'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+                'participant_status' => SessionParticipant::PARTICIPANT_STATUS_ENDING,
             ]);
         }
         $this->assertDatabaseHas('session_participants', [
             'user_id' => $coach->id,
-            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_ENDING,
         ]);
     }
 
@@ -90,7 +90,7 @@ class SessionCompletionTest extends TestCase
             ->assertJsonPath('message', 'At least one player must provide both an audio and a video recording.');
     }
 
-    public function test_a_participant_with_no_upload_is_still_swept_to_completed(): void
+    public function test_a_participant_with_no_upload_is_still_swept_to_ending(): void
     {
         [, $coach, $session, $players, $parts] = $this->recordingSession(2);
         AodRecord::factory()->for($parts[$players[0]->id])->create();
@@ -102,7 +102,7 @@ class SessionCompletionTest extends TestCase
 
         $this->assertDatabaseHas('session_participants', [
             'user_id' => $players[1]->id,
-            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_ENDING,
         ]);
     }
 
@@ -269,7 +269,7 @@ class SessionCompletionTest extends TestCase
         $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => $status]);
     }
 
-    public function test_completion_completes_the_coach_too(): void
+    public function test_completion_ends_the_coach_too(): void
     {
         [, $coach, $session, $players, $parts] = $this->recordingSession(1);
         AodRecord::factory()->for($parts[$players[0]->id])->create();
@@ -279,17 +279,17 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
-        // `completed` means the session is over for this participant, and it is
-        // over for the Coach as much as for the players who recorded
-        // (docs/adr/0014-participation-lifecycle.md).
+        // `ending` means the session is over for this participant while its
+        // analysis runs, and it is over for the Coach as much as for the
+        // players who recorded (ADR 0014, ADR 0015).
         $this->assertDatabaseHas('session_participants', [
             'session_id' => $session->id,
             'user_id' => $coach->id,
-            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_ENDING,
         ]);
     }
 
-    public function test_completion_completes_a_player_who_stopped_early(): void
+    public function test_completion_ends_a_player_who_stopped_early(): void
     {
         [, $coach, $session, $players, $parts] = $this->recordingSession(2, Session::STATUS_IN_PROGRESS);
         AodRecord::factory()->for($parts[$players[0]->id])->create();
@@ -311,7 +311,7 @@ class SessionCompletionTest extends TestCase
             $this->assertDatabaseHas('session_participants', [
                 'session_id' => $session->id,
                 'user_id' => $player->id,
-                'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+                'participant_status' => SessionParticipant::PARTICIPANT_STATUS_ENDING,
             ]);
         }
     }
