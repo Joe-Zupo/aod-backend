@@ -61,7 +61,7 @@ class SessionCompletionTest extends TestCase
         }
         $this->assertDatabaseHas('session_participants', [
             'user_id' => $coach->id,
-            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_READY,
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
         ]);
     }
 
@@ -105,7 +105,7 @@ class SessionCompletionTest extends TestCase
         ]);
     }
 
-    public function test_a_player_who_left_mid_session_with_a_full_pair_still_counts(): void
+    public function test_a_departed_players_stored_pair_still_satisfies_the_completion_guard(): void
     {
         [, $coach, $session, $players, $parts] = $this->recordingSession(2);
         AodRecord::factory()->for($parts[$players[1]->id])->create();
@@ -116,9 +116,13 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
+        // The pair guard reads `recording` rows without filtering on `left_at`,
+        // so this row still counts towards completion. The sweep does filter,
+        // so the row itself is not completed: it was not in the session when the
+        // session ended (docs/adr/0014-participation-lifecycle.md).
         $this->assertDatabaseHas('session_participants', [
             'user_id' => $players[1]->id,
-            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_RECORDING,
         ]);
     }
 
@@ -234,5 +238,71 @@ class SessionCompletionTest extends TestCase
             ->assertJsonPath('message', 'Only an in_progress session can be completed.');
 
         $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => $status]);
+    }
+
+    public function test_completion_completes_the_coach_too(): void
+    {
+        [, $coach, $session, $players, $parts] = $this->recordingSession(1);
+        AodRecord::factory()->for($parts[$players[0]->id])->create();
+        VodRecord::factory()->for($parts[$players[0]->id])->create();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
+            ->assertOk();
+
+        // `completed` means the session is over for this participant, and it is
+        // over for the Coach as much as for the players who recorded
+        // (docs/adr/0014-participation-lifecycle.md).
+        $this->assertDatabaseHas('session_participants', [
+            'session_id' => $session->id,
+            'user_id' => $coach->id,
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+        ]);
+    }
+
+    public function test_completion_completes_a_player_who_stopped_early(): void
+    {
+        [, $coach, $session, $players, $parts] = $this->recordingSession(2);
+        AodRecord::factory()->for($parts[$players[0]->id])->create();
+        VodRecord::factory()->for($parts[$players[0]->id])->create();
+
+        $this->actingAs($players[1], 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/stop-recording")
+            ->assertOk();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
+            ->assertOk();
+
+        foreach ($players as $player) {
+            $this->assertDatabaseHas('session_participants', [
+                'session_id' => $session->id,
+                'user_id' => $player->id,
+                'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+            ]);
+        }
+    }
+
+    public function test_completion_leaves_a_departed_participant_alone(): void
+    {
+        [, $coach, $session, $players, $parts] = $this->recordingSession(2);
+        AodRecord::factory()->for($parts[$players[0]->id])->create();
+        VodRecord::factory()->for($parts[$players[0]->id])->create();
+
+        $this->actingAs($players[1], 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/leave")
+            ->assertOk();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
+            ->assertOk();
+
+        // They were not in the session when it ended, so it did not end for
+        // them; `left_at` already says what happened.
+        $this->assertDatabaseHas('session_participants', [
+            'session_id' => $session->id,
+            'user_id' => $players[1]->id,
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT,
+        ]);
     }
 }

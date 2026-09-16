@@ -91,7 +91,8 @@ class DemoSessionSeeder extends Seeder
             'session_id' => $session->id,
             'user_id' => $mainCoach->id,
             'participant_role' => 'main_coach',
-            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_READY,
+            // The session is over for the Coach too (ADR 0014).
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
             'joined_at' => now(),
         ]);
 
@@ -160,7 +161,8 @@ class DemoSessionSeeder extends Seeder
             'session_id' => $session->id,
             'user_id' => $mainCoach->id,
             'participant_role' => 'main_coach',
-            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_READY,
+            // The session is over for the Coach too (ADR 0014).
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
             'joined_at' => now(),
         ]);
 

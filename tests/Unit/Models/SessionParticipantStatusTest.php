@@ -286,4 +286,80 @@ class SessionParticipantStatusTest extends TestCase
         $this->assertSame(SessionParticipant::PARTICIPANT_STATUS_RECORDING, $presentRow->fresh()->participant_status);
         $this->assertSame(SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT, $goneRow->fresh()->participant_status);
     }
+
+    public function test_a_participant_who_never_recorded_can_still_be_completed(): void
+    {
+        $team = $this->team();
+        $coach = $this->member($team, 'main_coach');
+        $session = Session::factory()->for($team)->create();
+        $participant = SessionParticipant::factory()->for($session)->create([
+            'user_id' => $coach->id,
+            'participant_role' => 'main_coach',
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_READY,
+        ]);
+
+        // `completed` says the session is over for this participant, not that
+        // they recorded, so `ready` reaches it directly
+        // (docs/adr/0014-participation-lifecycle.md).
+        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_COMPLETED);
+
+        $this->assertSame(
+            SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+            $participant->fresh()->participant_status,
+        );
+    }
+
+    public function test_a_participant_who_never_consented_is_still_completed_when_the_session_ends(): void
+    {
+        $team = $this->team();
+        $player = $this->member($team, 'player');
+        $session = Session::factory()->for($team)->create();
+        $participant = SessionParticipant::factory()->for($session)->create([
+            'user_id' => $player->id,
+            'participant_role' => 'player',
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT,
+        ]);
+
+        // Ending participation is not granting it: `start()` still requires
+        // `ready`, so this edge is no consent loophole.
+        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_COMPLETED);
+
+        $this->assertSame(
+            SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+            $participant->fresh()->participant_status,
+        );
+    }
+
+    public function test_a_participant_who_has_not_consented_cannot_record(): void
+    {
+        $team = $this->team();
+        $player = $this->member($team, 'player');
+        $session = Session::factory()->for($team)->create();
+        $participant = SessionParticipant::factory()->for($session)->create([
+            'user_id' => $player->id,
+            'participant_role' => 'player',
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT,
+        ]);
+
+        $this->expectException(SessionTransitionException::class);
+        $this->expectExceptionMessage('A participant cannot move from needs_consent to recording.');
+
+        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_RECORDING);
+    }
+
+    public function test_nothing_follows_completed(): void
+    {
+        $team = $this->team();
+        $player = $this->member($team, 'player');
+        $session = Session::factory()->for($team)->create();
+        $participant = SessionParticipant::factory()->for($session)->create([
+            'user_id' => $player->id,
+            'participant_role' => 'player',
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+        ]);
+
+        $this->expectException(SessionTransitionException::class);
+
+        $participant->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_RECORDING);
+    }
 }

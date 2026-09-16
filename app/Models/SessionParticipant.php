@@ -25,16 +25,28 @@ class SessionParticipant extends Model
     public const PARTICIPANT_STATUS_COMPLETED = 'completed';
 
     /**
-     * The participant status machine, in strict forward order. A row only ever
-     * moves to the next state in this list (or stays put); it never skips ahead
-     * or steps back. `recording` and `completed` are driven by the session
-     * start sweep and the completion endpoint, not by the participant.
+     * The participant status machine, as the moves each status allows. A row
+     * only ever takes one of these edges or stays put; it never steps back and
+     * never skips a status it was meant to pass through.
+     *
+     * Every status reaches `completed`, because it means "this session is over
+     * for me" rather than "I finished recording": a Coach never records, a
+     * player who stopped early is back at `needs_consent`, and the session ends
+     * for both of them (docs/adr/0014-participation-lifecycle.md). Reaching
+     * `completed` from `needs_consent` is not a consent loophole — it ends
+     * participation rather than granting it, and `start()` still requires
+     * `ready`. Nothing follows `completed`.
+     *
+     * `recording` and `completed` are driven by the session start sweep and the
+     * completion endpoint, not by the participant.
+     *
+     * @var array<string, list<string>>
      */
-    public const PARTICIPANT_STATUS_SEQUENCE = [
-        self::PARTICIPANT_STATUS_NEEDS_CONSENT,
-        self::PARTICIPANT_STATUS_READY,
-        self::PARTICIPANT_STATUS_RECORDING,
-        self::PARTICIPANT_STATUS_COMPLETED,
+    public const PARTICIPANT_STATUS_TRANSITIONS = [
+        self::PARTICIPANT_STATUS_NEEDS_CONSENT => [self::PARTICIPANT_STATUS_READY, self::PARTICIPANT_STATUS_COMPLETED],
+        self::PARTICIPANT_STATUS_READY => [self::PARTICIPANT_STATUS_RECORDING, self::PARTICIPANT_STATUS_COMPLETED],
+        self::PARTICIPANT_STATUS_RECORDING => [self::PARTICIPANT_STATUS_COMPLETED],
+        self::PARTICIPANT_STATUS_COMPLETED => [],
     ];
 
     protected $fillable = [
@@ -185,12 +197,11 @@ class SessionParticipant extends Model
 
     /**
      * Move this row's participant_status forward to $status. A move to the
-     * current status is a silent no-op; anything other than exactly the next
-     * state in PARTICIPANT_STATUS_SEQUENCE (skipping ahead, or stepping back)
-     * is refused. Callers own the locking; this just enforces the machine.
+     * current status is a silent no-op; anything PARTICIPANT_STATUS_TRANSITIONS
+     * does not allow from the current status is refused. Callers own the
+     * locking; this just enforces the machine.
      *
-     * @throws SessionTransitionException when $status is not the current
-     *                                    status or the one immediately after it
+     * @throws SessionTransitionException when the move is not an allowed edge
      */
     public function advanceStatusTo(string $status): void
     {
@@ -200,10 +211,9 @@ class SessionParticipant extends Model
             return;
         }
 
-        $currentIndex = array_search($current, self::PARTICIPANT_STATUS_SEQUENCE, true);
-        $targetIndex = array_search($status, self::PARTICIPANT_STATUS_SEQUENCE, true);
+        $allowed = self::PARTICIPANT_STATUS_TRANSITIONS[$current] ?? [];
 
-        if ($currentIndex === false || $targetIndex === false || $targetIndex !== $currentIndex + 1) {
+        if (! in_array($status, $allowed, true)) {
             throw new SessionTransitionException("A participant cannot move from {$current} to {$status}.");
         }
 

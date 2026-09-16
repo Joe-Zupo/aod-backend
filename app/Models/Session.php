@@ -613,9 +613,19 @@ class Session extends Model
 
             Broadcasting::safely(new SessionStatusChanged($this));
 
-            $recording->each(
-                fn (SessionParticipant $swept) => $swept->advanceStatusTo(SessionParticipant::PARTICIPANT_STATUS_COMPLETED),
-            );
+            // Everyone still in the session, not just whoever recorded: the
+            // session is over for the Coach and for a player who stopped early
+            // as much as for the players who delivered files
+            // (docs/adr/0014-participation-lifecycle.md). A departed row is left
+            // alone — it was not here when the session ended, and `left_at`
+            // already says so.
+            $this->participants()
+                ->whereNull('left_at')
+                ->with('user')
+                ->get()
+                ->each(fn (SessionParticipant $swept) => $swept->advanceStatusTo(
+                    SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
+                ));
         });
 
         // Dispatched only after the transaction has committed, so a worker

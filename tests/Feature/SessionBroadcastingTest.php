@@ -353,7 +353,7 @@ class SessionBroadcastingTest extends TestCase
         Event::assertNotDispatched(SessionStatusChanged::class);
     }
 
-    public function test_completing_a_session_dispatches_a_status_change_for_each_swept_participant(): void
+    public function test_completing_a_session_dispatches_a_status_change_for_every_active_participant(): void
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
         $one = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
@@ -374,10 +374,14 @@ class SessionBroadcastingTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
-        Event::assertDispatchedTimes(SessionParticipantStatusChanged::class, 2);
-        Event::assertNotDispatched(
+        // Two players and the Coach: completion ends the session for everyone
+        // still in it, not only for whoever recorded
+        // (docs/adr/0014-participation-lifecycle.md).
+        Event::assertDispatchedTimes(SessionParticipantStatusChanged::class, 3);
+        Event::assertDispatched(
             SessionParticipantStatusChanged::class,
-            fn ($event) => $event->participant->user_id === $coach->id,
+            fn ($event) => $event->participant->user_id === $coach->id
+                && $event->participant->participant_status === SessionParticipant::PARTICIPANT_STATUS_COMPLETED,
         );
     }
 
