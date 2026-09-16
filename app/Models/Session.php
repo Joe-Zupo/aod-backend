@@ -245,6 +245,9 @@ class Session extends Model
      *
      * Returns whether it cancelled, so a departure can tell "this session is
      * over" from "this session lost someone" and skip the regress below.
+     *
+     * Deletes recording rows but does not unlink their files: this runs inside
+     * the caller's transaction, so the caller flushes once it has committed.
      */
     public function cancelIfNoParticipantsRemain(): bool
     {
@@ -257,6 +260,12 @@ class Session extends Model
         if ($hasActiveParticipant) {
             return false;
         }
+
+        // Same invariant cancel() carries: a cancelled session keeps nothing
+        // (ADR 0012). Every route here runs through leave(), which has already
+        // discarded on the way out, so this normally finds nothing — but the
+        // guard must not depend on that staying true.
+        $this->discardRecordingsFor($this->participants()->pluck('id'));
 
         $this->update(['status' => self::STATUS_CANCELLED]);
 
