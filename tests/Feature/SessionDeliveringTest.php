@@ -6,6 +6,7 @@ use App\Events\SessionStatusChanged;
 use App\Models\AodRecord;
 use App\Models\Session;
 use App\Models\SessionParticipant;
+use App\Models\User;
 use App\Models\VodRecord;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -37,7 +38,7 @@ class SessionDeliveringTest extends TestCase
     }
 
     /**
-     * @return array{0: \App\Models\User, 1: \App\Models\User, 2: Session}
+     * @return array{0: User, 1: User, 2: Session}
      */
     private function recordingSession(string $status = Session::STATUS_IN_PROGRESS): array
     {

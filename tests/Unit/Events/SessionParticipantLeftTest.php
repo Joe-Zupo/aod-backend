@@ -47,6 +47,8 @@ class SessionParticipantLeftTest extends TestCase
             'participant_status' => 'recording',
             'joined_at' => '2026-08-26T12:00:00.000000Z',
             'left_at' => '2026-08-26T13:30:00.000000Z',
+            'aod' => null,
+            'vod' => null,
         ], json_decode(json_encode($payload), true));
     }
 }

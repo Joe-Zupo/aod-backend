@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Events\SessionParticipantJoined;
 use App\Events\SessionParticipantLeft;
+use App\Events\SessionParticipantRecordingUploaded;
 use App\Events\SessionStatusChanged;
 use App\Exceptions\SessionTransitionException;
 use App\Jobs\DetectCommEvents;
@@ -1059,6 +1060,10 @@ class Session extends Model
 
             $aod = $audio ? $this->replaceRecording(AodRecord::class, $participant, $audio, 'aod', $audioClientStartedAt) : $participant->aodRecord;
             $vod = $video ? $this->replaceRecording(VodRecord::class, $participant, $video, 'vod', $videoClientStartedAt) : $participant->vodRecord;
+
+            // Deferred to commit like every broadcast here, so a coach never
+            // sees a delivery whose row rolled back (ADR 0015).
+            Broadcasting::safely(new SessionParticipantRecordingUploaded($participant));
 
             return ['aod' => $aod, 'vod' => $vod];
         });

@@ -50,6 +50,8 @@ class SessionParticipantJoinedTest extends TestCase
             'participant_status' => 'ready',
             'joined_at' => '2026-08-26T12:00:00.000000Z',
             'left_at' => null,
+            'aod' => null,
+            'vod' => null,
         ], json_decode(json_encode($payload), true));
     }
 }
