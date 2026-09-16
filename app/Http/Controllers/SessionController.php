@@ -77,7 +77,7 @@ class SessionController extends Controller
             return $this->error('This team already has an active session.', 422);
         }
 
-        return $this->success('Session created.', ['session' => new SessionResource($session->load('activeParticipants.user'))], 201);
+        return $this->success('Session created.', ['session' => new SessionResource($session->loadRoster())], 201);
     }
 
     /**
@@ -95,7 +95,7 @@ class SessionController extends Controller
         $this->assertReadable($session);
 
         return $this->success('Session retrieved.', [
-            'session' => new SessionResource($session->load('activeParticipants.user')),
+            'session' => new SessionResource($session->loadRoster()),
         ]);
     }
 
@@ -248,7 +248,7 @@ class SessionController extends Controller
         }
 
         return $this->success('Session transition applied.', [
-            'session' => new SessionResource($session->fresh()->load('activeParticipants.user')),
+            'session' => new SessionResource($session->fresh()->loadRoster()),
         ], $to === Session::TRANSITION_REANALYZE ? 202 : 200);
     }
 
@@ -275,7 +275,7 @@ class SessionController extends Controller
         }
 
         return $this->success('Joined session.', [
-            'session' => new SessionResource($session->load('activeParticipants.user')),
+            'session' => new SessionResource($session->loadRoster()),
         ]);
     }
 
@@ -298,7 +298,7 @@ class SessionController extends Controller
         }
 
         return $this->success('Consent recorded.', [
-            'session' => new SessionResource($session->load('activeParticipants.user')),
+            'session' => new SessionResource($session->loadRoster()),
         ]);
     }
 
@@ -320,7 +320,7 @@ class SessionController extends Controller
         }
 
         return $this->success('Left session.', [
-            'session' => new SessionResource($session->refresh()->load('activeParticipants.user')),
+            'session' => new SessionResource($session->refresh()->loadRoster()),
             'discarded' => $discarded,
         ]);
     }
@@ -367,7 +367,7 @@ class SessionController extends Controller
         }
 
         return $this->success($message, [
-            'session' => new SessionResource($session->refresh()->load('activeParticipants.user')),
+            'session' => new SessionResource($session->refresh()->loadRoster()),
             'discarded' => $discarded,
         ]);
     }
@@ -389,7 +389,7 @@ class SessionController extends Controller
         }
 
         return $this->success('Session started.', [
-            'session' => new SessionResource($session->load('activeParticipants.user')),
+            'session' => new SessionResource($session->loadRoster()),
         ]);
     }
 
@@ -425,7 +425,7 @@ class SessionController extends Controller
         }
 
         return $this->success('Session completed.', [
-            'session' => new SessionResource($session->load('activeParticipants.user')),
+            'session' => new SessionResource($session->loadRoster()),
         ]);
     }
 

@@ -25,6 +25,12 @@ class SessionParticipant extends Model
     public const PARTICIPANT_STATUS_COMPLETED = 'completed';
 
     /**
+     * The relations a participant's representation reads, in the API resource
+     * and in every participant broadcast: the user, and the Delivery State.
+     */
+    public const REPRESENTATION_RELATIONS = ['user', 'aodRecord', 'vodRecord'];
+
+    /**
      * The participant status machine, as the moves each status allows. A row
      * only ever takes one of these edges or stays put; it never steps back and
      * never skips a status it was meant to pass through.

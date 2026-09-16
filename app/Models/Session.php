@@ -209,6 +209,18 @@ class Session extends Model
     }
 
     /**
+     * Load the active roster with everything a participant's representation
+     * shows: the user, and the Delivery State (ADR 0015).
+     */
+    public function loadRoster(): static
+    {
+        return $this->load(array_map(
+            fn (string $relation) => "activeParticipants.{$relation}",
+            SessionParticipant::REPRESENTATION_RELATIONS,
+        ));
+    }
+
+    /**
      * Participants who haven't left — the roster as it stands right now,
      * which is what API consumers should see by default.
      */

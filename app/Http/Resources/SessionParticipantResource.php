@@ -18,6 +18,10 @@ class SessionParticipantResource extends JsonResource
             'participant_status' => $this->participant_status,
             'joined_at' => $this->joined_at,
             'left_at' => $this->left_at,
+            // Delivery State: what this participant has stored for the current
+            // run, null until they upload and after any discard (ADR 0015).
+            'aod' => $this->aodRecord ? new RecordingMetaResource($this->aodRecord) : null,
+            'vod' => $this->vodRecord ? new RecordingMetaResource($this->vodRecord) : null,
         ];
     }
 }
