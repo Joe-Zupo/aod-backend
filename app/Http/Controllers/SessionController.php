@@ -319,6 +319,53 @@ class SessionController extends Controller
     }
 
     /**
+     * Start Recording
+     *
+     * Move the authenticated player from `ready` to `recording`. Idempotent
+     * once already recording; a player who has not consented is rejected with
+     * 422 rather than silently told they are recording. Restricted to a player
+     * holding an active participant row on an in_progress session; a Coach is
+     * rejected with 422.
+     */
+    public function startRecording(Request $request, Session $session): JsonResponse
+    {
+        return $this->applyRecording($request, $session, true, 'Recording started.');
+    }
+
+    /**
+     * Stop Recording
+     *
+     * Drop the authenticated player back to `needs_consent`, which takes them
+     * off the completion roster: stopping leaves the run rather than pausing
+     * it, and returning means consenting again. When this was the last player
+     * recording, the session returns to `queuing`.
+     */
+    public function stopRecording(Request $request, Session $session): JsonResponse
+    {
+        return $this->applyRecording($request, $session, false, 'Recording stopped.');
+    }
+
+    private function applyRecording(
+        Request $request,
+        Session $session,
+        bool $recording,
+        string $message,
+    ): JsonResponse {
+        $this->authorize('record', $session);
+
+        try {
+            $discarded = $session->setRecording($request->user(), $recording);
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success($message, [
+            'session' => new SessionResource($session->refresh()->load('activeParticipants.user')),
+            'discarded' => $discarded,
+        ]);
+    }
+
+    /**
      * Start Session
      *
      * Transition a queuing session to in_progress. Restricted to any active

@@ -23,7 +23,7 @@ class TeamKeyword extends Model
         'footsteps', 'heard', 'spotted', 'seen',
         'clear', 'empty', 'split', 'late', 'fast', 'slow',
         'stacked', 'rotated', 'ult', 'heaven', 'hell', 'hookah',
-        'A', 'B', 'C', 
+        'A', 'B', 'C',
     ];
 
     public const DEFAULT_DECLARATIVE_KEYWORDS = [
@@ -33,7 +33,7 @@ class TeamKeyword extends Model
         'trading', 'clearing', 'watching', 'covering', 'flanking', 'rushing',
         'baiting', 'faking', 'delaying', 'going', 'taking', 'firing',
         'pre-firing', 'pick', 'picking', 'fragging', 'jiggling', 'stop', 'go', 'ulting',
-        'committing', 'fake', 'rush'
+        'committing', 'fake', 'rush',
     ];
 
     protected $fillable = [

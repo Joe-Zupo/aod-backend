@@ -148,6 +148,42 @@ class SessionParticipant extends Model
     }
 
     /**
+     * Begin recording, moving `ready` -> `recording`. Already recording is a
+     * silent no-op; anything earlier in the sequence is refused by
+     * advanceStatusTo(), which is what stops a player who has not consented
+     * from recording (docs/adr/0013-recording-control-and-departure.md).
+     *
+     * @throws SessionTransitionException when this row has not consented yet
+     */
+    public function startRecording(): void
+    {
+        if ($this->participant_status === self::PARTICIPANT_STATUS_RECORDING) {
+            return;
+        }
+
+        if ($this->participant_status !== self::PARTICIPANT_STATUS_READY) {
+            throw new SessionTransitionException('Consent to this session before recording.');
+        }
+
+        $this->advanceStatusTo(self::PARTICIPANT_STATUS_RECORDING);
+    }
+
+    /**
+     * Stop recording, dropping back to `needs_consent`. Stopping is leaving the
+     * run rather than pausing it: the player is off the completion roster and
+     * must consent again before recording again. A row that is not recording is
+     * already in the state the caller asked for, so it is a no-op.
+     */
+    public function stopRecording(): void
+    {
+        if ($this->participant_status !== self::PARTICIPANT_STATUS_RECORDING) {
+            return;
+        }
+
+        $this->resetStatus(self::PARTICIPANT_STATUS_NEEDS_CONSENT);
+    }
+
+    /**
      * Move this row's participant_status forward to $status. A move to the
      * current status is a silent no-op; anything other than exactly the next
      * state in PARTICIPANT_STATUS_SEQUENCE (skipping ahead, or stepping back)

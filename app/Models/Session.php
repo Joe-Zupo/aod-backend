@@ -999,6 +999,60 @@ class Session extends Model
     }
 
     /**
+     * Start or stop $user's capture segment on this session. The seam that owns
+     * the guards both recording endpoints share: the session must be recording,
+     * the caller must hold an active participant row, and that row must belong
+     * to a player, because a Coach never captures anything
+     * (docs/adr/0013-recording-control-and-departure.md).
+     *
+     * Stopping discards whatever that player already uploaded, and reports which
+     * of the two files went, so the response can tell them their take is gone.
+     *
+     * @return array{audio: bool, video: bool} which recordings were discarded
+     *
+     * @throws SessionTransitionException when a guard is not met
+     */
+    public function setRecording(User $user, bool $recording): array
+    {
+        if ($this->status !== self::STATUS_IN_PROGRESS) {
+            throw new SessionTransitionException('Only a recording session can start or stop a recording.');
+        }
+
+        $participant = $this->participants()
+            ->whereNull('left_at')
+            ->where('user_id', $user->id)
+            ->first();
+
+        if ($participant === null) {
+            throw new SessionTransitionException('You are not a participant in this session.');
+        }
+
+        if (in_array($participant->participant_role, User::TEAM_COACH_ROLES, true)) {
+            throw new SessionTransitionException('A Coach does not record, so there is nothing to start or stop.');
+        }
+
+        if ($recording) {
+            $participant->startRecording();
+
+            return ['audio' => false, 'video' => false];
+        }
+
+        $discarded = DB::transaction(function () use ($participant) {
+            $discarded = $this->discardRecordingsForParticipant($participant);
+
+            $participant->stopRecording();
+
+            $this->regressIfNobodyRecording();
+
+            return $discarded;
+        });
+
+        $this->flushDiscardedRecordings();
+
+        return $discarded;
+    }
+
+    /**
      * Remove $user from this session's active roster. The mirror of
      * joinOrRejoin and the seam that owns all three states a caller can be in:
      * currently active (leave), previously left (a no-op, because gone is the

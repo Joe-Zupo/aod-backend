@@ -151,6 +151,17 @@ class SessionPolicy
     }
 
     /**
+     * Any active team member may reach the recording endpoints. Whether they
+     * have anything to start or stop — a player's participant row, on a session
+     * that is actually recording — is the model's guard, surfaced as a 422, the
+     * same split `consent` uses.
+     */
+    public function record(User $user, Session $session): Response
+    {
+        return $this->isActiveMember($user, $session->team);
+    }
+
+    /**
      * Any active Coach on the session's team may start or complete it, not just
      * whoever created it.
      */

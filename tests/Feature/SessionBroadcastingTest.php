@@ -380,4 +380,31 @@ class SessionBroadcastingTest extends TestCase
             fn ($event) => $event->participant->user_id === $coach->id,
         );
     }
+
+    public function test_stopping_broadcasts_the_players_new_status(): void
+    {
+        Event::fake([SessionParticipantStatusChanged::class]);
+
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $stayer = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $stopper = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, 'in_progress');
+        $this->addParticipant($session, $coach, 'main_coach');
+        $this->addParticipant($session, $stayer, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
+        $this->addParticipant($session, $stopper, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
+
+        $this->actingAs($stopper, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/stop-recording")
+            ->assertOk();
+
+        Event::assertDispatched(
+            SessionParticipantStatusChanged::class,
+            function (SessionParticipantStatusChanged $event) use ($stopper) {
+                $payload = $event->broadcastWith();
+
+                return $payload['user_id'] === $stopper->id
+                    && $payload['participant_status'] === SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT;
+            },
+        );
+    }
 }

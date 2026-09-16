@@ -77,6 +77,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/sessions/{session}/join', [SessionController::class, 'join']);
     Route::post('/sessions/{session}/consent', [SessionController::class, 'consent']);
     Route::post('/sessions/{session}/leave', [SessionController::class, 'leave']);
+    Route::post('/sessions/{session}/start-recording', [SessionController::class, 'startRecording']);
+    Route::post('/sessions/{session}/stop-recording', [SessionController::class, 'stopRecording']);
     Route::post('/sessions/{session}/start', [SessionController::class, 'start']);
     Route::post('/sessions/{session}/complete', [SessionController::class, 'complete']);
     Route::post('/sessions/{session}/recording', [SessionController::class, 'uploadRecording']);
