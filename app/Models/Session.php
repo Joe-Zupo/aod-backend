@@ -107,6 +107,13 @@ class Session extends Model
      * done and stored, so the team is free to start the next scrim while
      * analysis runs in the background.
      */
+    /**
+     * The two statuses of a run: capture under way, and capture ended with
+     * uploads still arriving. Both return to `queuing` when the Coach stops
+     * the run or nobody is left recording (ADR 0013, ADR 0015).
+     */
+    public const RUN_STATUSES = [self::STATUS_IN_PROGRESS, self::STATUS_DELIVERING];
+
     public const NON_TERMINAL_STATUSES = [self::STATUS_QUEUING, self::STATUS_IN_PROGRESS, self::STATUS_DELIVERING];
 
     /**
@@ -283,16 +290,17 @@ class Session extends Model
     }
 
     /**
-     * Send this session back to `queuing` if it is in_progress with no active
-     * participant still at `recording`. A run nobody is recording is not a run,
-     * whether they stopped or left.
+     * Send this session back to `queuing` if it is in_progress or delivering
+     * with no active participant still at `recording`. A run nobody is
+     * recording is not a run, whether they stopped or left, and a delivering
+     * session with nobody left to deliver can never be completed.
      *
      * Losing every Coach is not this trigger: a Coach never records, and any
      * other active Coach on the team can still complete the run.
      */
     public function regressIfNobodyRecording(): void
     {
-        if ($this->status !== self::STATUS_IN_PROGRESS) {
+        if (! in_array($this->status, self::RUN_STATUSES, true)) {
             return;
         }
 
@@ -317,13 +325,14 @@ class Session extends Model
      * resumable (docs/adr/0013-recording-control-and-departure.md).
      *
      * @throws SessionTransitionException when the session is not in_progress
+     *                                    or delivering
      */
     public function stopRecording(): void
     {
         DB::transaction(function () {
             $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
 
-            if ($status !== self::STATUS_IN_PROGRESS) {
+            if (! in_array($status, self::RUN_STATUSES, true)) {
                 throw new SessionTransitionException('Only a recording session can be stopped.');
             }
 
@@ -356,10 +365,11 @@ class Session extends Model
     }
 
     /**
-     * Move this session from `in_progress` back to `queuing`, discard what the
-     * abandoned run produced, and reset every active participant to the status
-     * their role starts at. The single seam for arriving at `queuing` from a
-     * run, so every path there behaves the same way.
+     * Move this session from a run (`in_progress` or `delivering`) back to
+     * `queuing`, discard what the abandoned run produced, and reset every
+     * active participant to the status their role starts at. The single seam
+     * for arriving at `queuing` from a run, so every path there behaves the
+     * same way.
      */
     private function returnToQueuing(): void
     {
@@ -1107,6 +1117,10 @@ class Session extends Model
      */
     public function setRecording(User $user, bool $recording): array
     {
+        if ($this->status === self::STATUS_DELIVERING) {
+            throw new SessionTransitionException('The run has ended, so recording can no longer start or stop.');
+        }
+
         if ($this->status !== self::STATUS_IN_PROGRESS) {
             throw new SessionTransitionException('Only a recording session can start or stop a recording.');
         }

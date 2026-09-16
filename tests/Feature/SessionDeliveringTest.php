@@ -3,10 +3,14 @@
 namespace Tests\Feature;
 
 use App\Events\SessionStatusChanged;
+use App\Models\AodRecord;
 use App\Models\Session;
 use App\Models\SessionParticipant;
+use App\Models\VodRecord;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Spatie\Permission\Models\Role;
 use Tests\Concerns\CreatesTeamsAndSessions;
@@ -28,6 +32,8 @@ class SessionDeliveringTest extends TestCase
         foreach (['Coach', 'Player'] as $role) {
             Role::create(['name' => $role, 'guard_name' => 'web']);
         }
+
+        Storage::fake('local');
     }
 
     /**
@@ -107,5 +113,88 @@ class SessionDeliveringTest extends TestCase
             ->assertForbidden();
 
         $this->assertSame(Session::STATUS_IN_PROGRESS, $session->fresh()->status);
+    }
+
+    public function test_a_player_can_still_upload_while_the_session_is_delivering(): void
+    {
+        [, $player, $session] = $this->recordingSession(Session::STATUS_DELIVERING);
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/recording", [
+                'audio' => UploadedFile::fake()->create('a.mp3', 16, 'audio/mpeg'),
+                'video' => UploadedFile::fake()->create('v.mp4', 16, 'video/mp4'),
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseCount('aod_records', 1);
+        $this->assertDatabaseCount('vod_records', 1);
+    }
+
+    public static function recordingControls(): array
+    {
+        return [
+            'start' => ['start-recording'],
+            'stop' => ['stop-recording'],
+        ];
+    }
+
+    #[DataProvider('recordingControls')]
+    public function test_a_player_cannot_start_or_stop_recording_once_the_run_has_ended(string $endpoint): void
+    {
+        [, $player, $session] = $this->recordingSession(Session::STATUS_DELIVERING);
+        $participant = $session->participants()->where('user_id', $player->id)->first();
+        AodRecord::factory()->for($participant)->create();
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/{$endpoint}")
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'The run has ended, so recording can no longer start or stop.');
+
+        $this->assertSame(SessionParticipant::PARTICIPANT_STATUS_RECORDING, $participant->fresh()->participant_status);
+        $this->assertDatabaseCount('aod_records', 1);
+    }
+
+    public function test_the_last_recording_player_leaving_a_delivering_session_returns_it_to_queuing(): void
+    {
+        [, $player, $session] = $this->recordingSession(Session::STATUS_DELIVERING);
+
+        $this->actingAs($player, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/leave")
+            ->assertOk();
+
+        $this->assertSame(Session::STATUS_QUEUING, $session->fresh()->status);
+    }
+
+    public function test_a_coach_can_stop_a_delivering_session_back_to_the_lobby(): void
+    {
+        [$coach, $player, $session] = $this->recordingSession(Session::STATUS_DELIVERING);
+        $participant = $session->participants()->where('user_id', $player->id)->first();
+        AodRecord::factory()->for($participant)->create();
+        VodRecord::factory()->for($participant)->create();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'queuing'])
+            ->assertOk()
+            ->assertJsonPath('data.session.status', 'queuing');
+
+        $this->assertSame(SessionParticipant::PARTICIPANT_STATUS_NEEDS_CONSENT, $participant->fresh()->participant_status);
+        $this->assertDatabaseCount('aod_records', 0);
+        $this->assertDatabaseCount('vod_records', 0);
+    }
+
+    public function test_a_coach_can_cancel_a_delivering_session_and_nothing_is_kept(): void
+    {
+        [$coach, $player, $session] = $this->recordingSession(Session::STATUS_DELIVERING);
+        $participant = $session->participants()->where('user_id', $player->id)->first();
+        AodRecord::factory()->for($participant)->create();
+        VodRecord::factory()->for($participant)->create();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'cancelled'])
+            ->assertOk()
+            ->assertJsonPath('data.session.status', 'cancelled');
+
+        $this->assertDatabaseCount('aod_records', 0);
+        $this->assertDatabaseCount('vod_records', 0);
     }
 }
