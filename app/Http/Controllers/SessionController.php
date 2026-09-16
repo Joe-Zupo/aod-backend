@@ -332,7 +332,7 @@ class SessionController extends Controller
      * once already recording; a player who has not consented is rejected with
      * 422 rather than silently told they are recording. Restricted to a player
      * holding an active participant row on an in_progress session; a Coach is
-     * rejected with 422.
+     * rejected with 422, and so is anyone once the session is `delivering`.
      */
     public function startRecording(Request $request, Session $session): JsonResponse
     {
@@ -345,7 +345,8 @@ class SessionController extends Controller
      * Drop the authenticated player back to `needs_consent`, which takes them
      * off the completion roster: stopping leaves the run rather than pausing
      * it, and returning means consenting again. When this was the last player
-     * recording, the session returns to `queuing`.
+     * recording, the session returns to `queuing`. Rejected with 422 once the
+     * session is `delivering`, because stopping would discard a delivered take.
      */
     public function stopRecording(Request $request, Session $session): JsonResponse
     {
@@ -436,8 +437,11 @@ class SessionController extends Controller
      * uploads their own audio and/or video for a session they are actively
      * recording in. Independent of the coach's completion call. Restricted
      * to the caller's own participant row; rejected with 422 unless that
-     * row is currently `recording` and has not left. See
-     * docs/adr/0012-per-player-recording-uploads.md.
+     * row is currently `recording` and has not left, which holds through
+     * `in_progress` and `delivering`. A successful upload broadcasts
+     * `SessionParticipantRecordingUploaded` on the session channel. See
+     * docs/adr/0012-per-player-recording-uploads.md and
+     * docs/adr/0015-end-of-run-and-end-of-participation.md.
      */
     public function uploadRecording(StoreSessionRecordingRequest $request, Session $session): JsonResponse
     {
