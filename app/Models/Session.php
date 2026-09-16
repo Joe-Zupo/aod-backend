@@ -464,7 +464,10 @@ class Session extends Model
 
     /**
      * Storage paths whose rows this instance has already deleted, waiting to be
-     * unlinked once the surrounding transaction commits.
+     * unlinked once the surrounding transaction commits. The discard rules nest
+     * — leaving triggers a regress, which discards again — so they accumulate
+     * here and the entry point flushes once, rather than each rule unlinking
+     * files a rollback could still strand.
      *
      * @var list<string>
      */
@@ -477,7 +480,9 @@ class Session extends Model
      * after it: a rollback that had already deleted the files would leave rows
      * pointing at nothing.
      *
-     * The single seam for "these participants' recordings are gone".
+     * The single seam for "these participants' recordings are gone", shared by
+     * cancel(), a player stopping or leaving, and the regress
+     * (docs/adr/0013-recording-control-and-departure.md).
      *
      * @return list<string>
      */
@@ -497,7 +502,9 @@ class Session extends Model
 
     /**
      * Discard one participant's recordings, reporting which of the two were
-     * actually there.
+     * actually there. The report is what the leave and stop-recording responses
+     * hand back, so a client can tell the player their take is gone rather than
+     * leaving them to infer it.
      *
      * @return array{audio: bool, video: bool}
      */
