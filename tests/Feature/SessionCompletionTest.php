@@ -7,6 +7,7 @@ use App\Models\AodRecord;
 use App\Models\Session;
 use App\Models\SessionParticipant;
 use App\Models\Team;
+use App\Models\Transcript;
 use App\Models\User;
 use App\Models\VodRecord;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -105,10 +106,29 @@ class SessionCompletionTest extends TestCase
         ]);
     }
 
-    public function test_a_departed_players_stored_pair_still_satisfies_the_completion_guard(): void
+    public function test_a_departed_players_stored_pair_does_not_satisfy_the_completion_guard(): void
     {
         [, $coach, $session, $players, $parts] = $this->recordingSession(2);
         AodRecord::factory()->for($parts[$players[1]->id])->create();
+        VodRecord::factory()->for($parts[$players[1]->id])->create();
+        $session->participants()->where('user_id', $players[1]->id)->update(['left_at' => now()]);
+
+        // Completion reads the participants who are still in the session, so a
+        // departed row's pair counts for nothing: the run has no delivered
+        // recording from anyone who is still here
+        // (docs/adr/0014-participation-lifecycle.md).
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'At least one player must provide both an audio and a video recording.');
+    }
+
+    public function test_a_departed_players_stored_audio_is_not_transcribed(): void
+    {
+        [, $coach, $session, $players, $parts] = $this->recordingSession(2);
+        AodRecord::factory()->for($parts[$players[0]->id])->create();
+        VodRecord::factory()->for($parts[$players[0]->id])->create();
+        $departedAod = AodRecord::factory()->for($parts[$players[1]->id])->create();
         VodRecord::factory()->for($parts[$players[1]->id])->create();
         $session->participants()->where('user_id', $players[1]->id)->update(['left_at' => now()]);
 
@@ -116,14 +136,9 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertOk();
 
-        // The pair guard reads `recording` rows without filtering on `left_at`,
-        // so this row still counts towards completion. The sweep does filter,
-        // so the row itself is not completed: it was not in the session when the
-        // session ended (docs/adr/0014-participation-lifecycle.md).
-        $this->assertDatabaseHas('session_participants', [
-            'user_id' => $players[1]->id,
-            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_RECORDING,
-        ]);
+        // One transcript, for the player who was still in the session.
+        $this->assertDatabaseMissing('transcripts', ['aod_record_id' => $departedAod->id]);
+        $this->assertSame(1, Transcript::count());
     }
 
     public function test_completing_a_queuing_session_is_rejected(): void

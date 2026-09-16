@@ -573,7 +573,14 @@ class Session extends Model
                 throw new SessionTransitionException('Only an in_progress session can be completed.');
             }
 
+            // `whereNull('left_at')` matters as much as the status, and matches
+            // the sweep below: completion is about the participants who are
+            // still in the session. A departed row's stored pair counts for
+            // nothing and its audio is not transcribed, because that player is
+            // not part of the run being completed
+            // (docs/adr/0014-participation-lifecycle.md).
             $recording = $this->participants()
+                ->whereNull('left_at')
                 ->where('participant_status', SessionParticipant::PARTICIPANT_STATUS_RECORDING)
                 ->with(['user', 'aodRecord', 'vodRecord'])
                 ->lockForUpdate()

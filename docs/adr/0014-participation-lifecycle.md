@@ -61,6 +61,11 @@ player to be `ready`.
 `complete()` swept the `recording` set. It now sweeps every participant with
 `left_at IS NULL`. One rule, applied to whoever was still there.
 
+The same filter applies to the two questions completion asks before that: whether
+anyone delivered a full pair, and whose audio to transcribe. All three read the
+participants still in the session, so they cannot disagree about who the run
+belonged to.
+
 A departed participant is not swept. They were not in the session when it ended,
 and `left_at` already records what happened.
 
@@ -93,12 +98,12 @@ had already ended.
   participant instead of only the recorders. A five-player session with two
   coaches emits seven instead of five, alongside the `SessionStatusChanged` it
   already sent.
-- `complete()`'s pair guard and its transcript loop still read `recording` rows
-  without filtering on `left_at`, while the sweep filters. A row that departed
-  with a stored pair therefore counts towards completion and gets a transcript,
-  but is not itself completed. Unreachable through the endpoints, because
-  `leave()` discards recordings and resets the row (ADR 0013), but the two
-  queries disagree and should be reconciled.
+- `complete()` reads participants who are still in the session throughout: the
+  pair guard, the transcript loop and the sweep all filter on `left_at`. A
+  departed row's stored pair counts for nothing and its audio is not
+  transcribed. Unreachable through the endpoints, because `leave()` discards
+  recordings and resets the row (ADR 0013), but the queries now agree rather
+  than depending on that.
 - `CONTEXT.md` loses two sentences: that a coach's status stays `ready` for the
   whole session, and that the machine only ever moves forward one step at a
   time.
