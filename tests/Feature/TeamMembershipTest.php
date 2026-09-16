@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Models\Session;
+use App\Models\SessionParticipant;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -318,5 +320,42 @@ class TeamMembershipTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.team_membership_status', null)
             ->assertJsonPath('data.team', null);
+    }
+
+    public function test_removing_the_last_recording_player_returns_their_session_to_the_lobby(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMainCoach();
+        $player = User::factory()->create();
+        $player->assignRole('Player');
+        $team->members()->attach($player, [
+            'member_role' => 'player',
+            'status' => 'active',
+            'joined_at' => now(),
+            'decided_by' => $coach->id,
+            'decided_at' => now(),
+        ]);
+
+        $session = Session::factory()->for($team)->create([
+            'created_by' => $coach->id,
+            'status' => Session::STATUS_IN_PROGRESS,
+        ]);
+        SessionParticipant::factory()->for($session)->create([
+            'user_id' => $coach->id,
+            'participant_role' => 'main_coach',
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_READY,
+        ]);
+        SessionParticipant::factory()->for($session)->create([
+            'user_id' => $player->id,
+            'participant_role' => 'player',
+            'participant_status' => SessionParticipant::PARTICIPANT_STATUS_RECORDING,
+        ]);
+
+        $this->actingAs($coach, 'sanctum')
+            ->deleteJson("/api/teams/members/{$player->id}")
+            ->assertOk();
+
+        // Team removal departs the member through SessionParticipant::leave(),
+        // so it inherits the departure rules rather than having its own.
+        $this->assertSame(Session::STATUS_QUEUING, $session->fresh()->status);
     }
 }

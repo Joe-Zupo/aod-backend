@@ -241,18 +241,79 @@ class Session extends Model
      * Cancel this session if it's non-terminal and has no active (not-left)
      * participant remaining at all — once everyone who was in it has left,
      * there's no one left to run or take part in it.
+     *
+     * Returns whether it cancelled, so a departure can tell "this session is
+     * over" from "this session lost someone" and skip the regress below.
      */
-    public function cancelIfNoParticipantsRemain(): void
+    public function cancelIfNoParticipantsRemain(): bool
     {
         if (! in_array($this->status, self::NON_TERMINAL_STATUSES, true)) {
-            return;
+            return false;
         }
 
         $hasActiveParticipant = $this->participants()->whereNull('left_at')->exists();
 
-        if (! $hasActiveParticipant) {
-            $this->update(['status' => self::STATUS_CANCELLED]);
+        if ($hasActiveParticipant) {
+            return false;
         }
+
+        $this->update(['status' => self::STATUS_CANCELLED]);
+
+        Broadcasting::safely(new SessionStatusChanged($this));
+
+        return true;
+    }
+
+    /**
+     * Send this session back to `queuing` if it is in_progress with no active
+     * participant still at `recording`. A run nobody is recording is not a run,
+     * whether they stopped or left.
+     *
+     * Losing every Coach is not this trigger: a Coach never records, and any
+     * other active Coach on the team can still complete the run.
+     */
+    public function regressIfNobodyRecording(): void
+    {
+        if ($this->status !== self::STATUS_IN_PROGRESS) {
+            return;
+        }
+
+        $stillRecording = $this->participants()
+            ->whereNull('left_at')
+            ->where('participant_status', SessionParticipant::PARTICIPANT_STATUS_RECORDING)
+            ->exists();
+
+        if ($stillRecording) {
+            return;
+        }
+
+        $this->returnToQueuing();
+    }
+
+    /**
+     * Move this session from `in_progress` back to `queuing`, discard what the
+     * abandoned run produced, and reset every active participant to the status
+     * their role starts at. The single seam for arriving at `queuing` from a
+     * run, so every path there behaves the same way.
+     */
+    private function returnToQueuing(): void
+    {
+        $this->update(['status' => self::STATUS_QUEUING]);
+
+        Broadcasting::safely(new SessionStatusChanged($this));
+
+        $active = $this->participants()
+            ->whereNull('left_at')
+            ->with('user')
+            ->get();
+
+        // ADR 0012 made "aborting discards everything" an invariant, and a
+        // regress is an abort with the seats kept.
+        $this->discardRecordingsFor(collect($active->modelKeys()));
+
+        $active->each(fn (SessionParticipant $participant) => $participant->resetStatus(
+            self::initialParticipantStatus($participant->participant_role),
+        ));
     }
 
     /**
@@ -938,6 +999,29 @@ class Session extends Model
     }
 
     /**
+     * Remove $user from this session's active roster. The mirror of
+     * joinOrRejoin and the seam that owns all three states a caller can be in:
+     * currently active (leave), previously left (a no-op, because gone is the
+     * state the caller asked for), never joined (refused). The departure rules
+     * themselves — cancel on empty, regress on the last player — belong to
+     * SessionParticipant::leave(), so logout and team removal get them too.
+     *
+     * @return array{audio: bool, video: bool} which recordings were discarded
+     *
+     * @throws SessionTransitionException when $user has no participant row
+     */
+    public function departParticipant(User $user): array
+    {
+        $participant = $this->participants()->where('user_id', $user->id)->first();
+
+        if ($participant === null) {
+            throw new SessionTransitionException('You are not a participant in this session.');
+        }
+
+        return $participant->setRelation('session', $this)->leave();
+    }
+
+    /**
      * Add a user as a Session Participant, or reactivate their prior
      * participation if they'd left. The single seam that owns all three
      * states — never joined, previously left, currently active — so callers
@@ -982,7 +1066,7 @@ class Session extends Model
      * decided purely from the role snapshot. A Coach has nothing to consent to
      * and is ready immediately; everyone else must consent first.
      */
-    private static function initialParticipantStatus(?string $role): string
+    public static function initialParticipantStatus(?string $role): string
     {
         return in_array($role, User::TEAM_COACH_ROLES, true)
             ? SessionParticipant::PARTICIPANT_STATUS_READY

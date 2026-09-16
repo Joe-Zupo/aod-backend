@@ -2,16 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Models\SessionParticipant;
 use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Role;
+use Tests\Concerns\CreatesTeamsAndSessions;
 use Tests\TestCase;
 
 class AuthControllerTest extends TestCase
 {
-    use RefreshDatabase;
+    use CreatesTeamsAndSessions, RefreshDatabase;
 
     protected function setUp(): void
     {
@@ -197,5 +199,20 @@ class AuthControllerTest extends TestCase
         $this->assertDatabaseMissing('personal_access_tokens', [
             'id' => $token->accessToken->id,
         ]);
+    }
+
+    public function test_logging_out_the_last_player_regresses_their_in_progress_session(): void
+    {
+        [$team, $coach] = $this->makeTeamWithMember('main_coach');
+        $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
+        $session = $this->createSession($team, $coach, 'in_progress');
+        $this->addParticipant($session, $coach, 'main_coach');
+        $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
+
+        $this->withToken($player->createToken('auth-token')->plainTextToken)
+            ->postJson('/api/logout')
+            ->assertOk();
+
+        $this->assertSame('queuing', $session->fresh()->status);
     }
 }

@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Models\AodRecord;
 use App\Models\Session;
 use App\Models\SessionParticipant;
 use App\Models\Team;
 use App\Models\User;
+use App\Models\VodRecord;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
@@ -243,8 +245,8 @@ class SessionRecordingUploadTest extends TestCase
         $this->assertDatabaseHas('aod_records', ['session_participant_id' => $participant->id]);
         $this->assertDatabaseHas('vod_records', ['session_participant_id' => $participant->id]);
 
-        $aod = \App\Models\AodRecord::where('session_participant_id', $participant->id)->first();
-        $vod = \App\Models\VodRecord::where('session_participant_id', $participant->id)->first();
+        $aod = AodRecord::where('session_participant_id', $participant->id)->first();
+        $vod = VodRecord::where('session_participant_id', $participant->id)->first();
         $this->assertNotNull($aod->client_started_at);
         $this->assertNotNull($vod->client_started_at);
         $this->assertSame('2026-09-12 10:00:00', $aod->client_started_at->format('Y-m-d H:i:s'));

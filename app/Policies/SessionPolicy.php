@@ -139,6 +139,18 @@ class SessionPolicy
     }
 
     /**
+     * Any active team member may reach the leave endpoint. Whether they have
+     * anything to leave — a participant row on this session, and one that is
+     * still active — is the model's guard, surfaced as a 422 rather than a
+     * policy denial, because a policy can only allow or deny and departure has
+     * a third answer: already gone, which is a success.
+     */
+    public function leave(User $user, Session $session): Response
+    {
+        return $this->isActiveMember($user, $session->team);
+    }
+
+    /**
      * Any active Coach on the session's team may start or complete it, not just
      * whoever created it.
      */

@@ -296,6 +296,29 @@ class SessionController extends Controller
     }
 
     /**
+     * Leave Session
+     *
+     * Remove the authenticated caller from the session's active roster.
+     * Idempotent once already gone. Restricted to any active member of the
+     * session's team; a caller who never joined is rejected with 422.
+     */
+    public function leave(Request $request, Session $session): JsonResponse
+    {
+        $this->authorize('leave', $session);
+
+        try {
+            $discarded = $session->departParticipant($request->user());
+        } catch (SessionTransitionException $e) {
+            return $this->error($e->getMessage(), 422);
+        }
+
+        return $this->success('Left session.', [
+            'session' => new SessionResource($session->refresh()->load('activeParticipants.user')),
+            'discarded' => $discarded,
+        ]);
+    }
+
+    /**
      * Start Session
      *
      * Transition a queuing session to in_progress. Restricted to any active

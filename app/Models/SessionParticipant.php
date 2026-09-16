@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
 
 class SessionParticipant extends Model
 {
@@ -74,16 +75,76 @@ class SessionParticipant extends Model
     }
 
     /**
-     * Mark this participant as having left, then cancel the session if that
-     * left it with no active participants at all.
+     * Mark this participant as having left, discard whatever they had already
+     * uploaded, and apply the two rules that hang off a departure, in this
+     * order: cancel the session if nobody active is left in it at all, and
+     * otherwise return it to `queuing` if that was the last participant
+     * recording.
+     *
+     * The row drops to the status its role starts at. That is what makes the
+     * departure total: `uploadRecording()` and `complete()` both key off
+     * `participant_status === recording`, so a departed row left at `recording`
+     * would still have its files transcribed after the player walked away
+     * (docs/adr/0013-recording-control-and-departure.md).
+     *
+     * The rules live here rather than in the leave endpoint so every caller
+     * inherits them — the endpoint, logout, team member removal — because a
+     * Coach who closes the app has left exactly as much as one who clicked
+     * leave. Everything runs under a lock on the session row, taken before this
+     * row is re-read: both rules decide on a count of who is still recording,
+     * so two participants leaving at once would otherwise each see the other.
+     *
+     * @return array{audio: bool, video: bool} which recordings were discarded
      */
-    public function leave(): void
+    public function leave(): array
     {
-        $this->update(['left_at' => now()]);
+        $discarded = ['audio' => false, 'video' => false];
+        $session = null;
 
-        Broadcasting::safely(new SessionParticipantLeft($this));
+        DB::transaction(function () use (&$discarded, &$session) {
+            $session = Session::whereKey($this->session_id)->lockForUpdate()->first();
 
-        $this->session->cancelIfNoParticipantsRemain();
+            // Departing a row that already has `left_at` is a no-op: gone is the
+            // state the caller asked for, and re-stamping would move a timestamp
+            // other clients already hold.
+            if ($this->newQuery()->whereKey($this->getKey())->whereNotNull('left_at')->exists()) {
+                return;
+            }
+
+            $discarded = $session->discardRecordingsForParticipant($this);
+
+            $this->update([
+                'left_at' => now(),
+                'participant_status' => Session::initialParticipantStatus($this->participant_role),
+            ]);
+
+            Broadcasting::safely(new SessionParticipantLeft($this));
+
+            if ($session->cancelIfNoParticipantsRemain()) {
+                return;
+            }
+
+            $session->regressIfNobodyRecording();
+        });
+
+        $session?->flushDiscardedRecordings();
+
+        return $discarded;
+    }
+
+    /**
+     * Send this row back to the status its role starts at, clearing any capture
+     * segment with it. The one backward move in the machine, and the second
+     * place that bypasses advanceStatusTo() after joinOrRejoin(): a session that
+     * returns to `queuing` starts a new run, and ADR 0002 makes consent per-run,
+     * so every player must consent again
+     * (docs/adr/0013-recording-control-and-departure.md).
+     */
+    public function resetStatus(string $status): void
+    {
+        $this->update(['participant_status' => $status]);
+
+        Broadcasting::safely(new SessionParticipantStatusChanged($this));
     }
 
     /**
