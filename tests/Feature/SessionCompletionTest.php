@@ -18,10 +18,10 @@ use Tests\Concerns\CreatesTeamsAndSessions;
 use Tests\TestCase;
 
 /**
- * Completion of an in_progress Session: game_events only
+ * Completion of a delivering Session: game_events only
  * (docs/adr/0012-per-player-recording-uploads.md moved file delivery to
- * POST /sessions/{session}/recording). The Session moves in_progress ->
- * processing and every recording participant is swept to completed once at
+ * POST /sessions/{session}/recording). The Session moves delivering ->
+ * processing (docs/adr/0015-end-of-run-and-end-of-participation.md) and every recording participant is swept to completed once at
  * least one already-stored AodRecord/VodRecord pair belongs to the same
  * participant.
  */
@@ -77,7 +77,7 @@ class SessionCompletionTest extends TestCase
             ->assertStatus(422)
             ->assertJsonPath('message', 'At least one player must provide both an audio and a video recording.');
 
-        $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_IN_PROGRESS]);
+        $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_DELIVERING]);
     }
 
     public function test_completion_is_rejected_when_no_one_has_uploaded_anything(): void
@@ -141,6 +141,20 @@ class SessionCompletionTest extends TestCase
         $this->assertSame(1, Transcript::count());
     }
 
+    public function test_completing_an_in_progress_session_names_the_missing_step(): void
+    {
+        [, $coach, $session, $players, $parts] = $this->recordingSession(1, Session::STATUS_IN_PROGRESS);
+        AodRecord::factory()->for($parts[$players[0]->id])->create();
+        VodRecord::factory()->for($parts[$players[0]->id])->create();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Finish the run before completing it: move the session to delivering first.');
+
+        $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_IN_PROGRESS]);
+    }
+
     public function test_completing_a_queuing_session_is_rejected(): void
     {
         $this->assertWrongStatusRejected(Session::STATUS_QUEUING);
@@ -177,7 +191,7 @@ class SessionCompletionTest extends TestCase
             ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertForbidden();
 
-        $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_IN_PROGRESS]);
+        $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_DELIVERING]);
     }
 
     public function test_a_coach_of_another_team_gets_404_completing_this_teams_session(): void
@@ -215,18 +229,18 @@ class SessionCompletionTest extends TestCase
             $stale->complete(json_decode($this->stubGameEvents(), true));
             $this->fail('Expected complete() to reject a session cancelled since it was loaded.');
         } catch (SessionTransitionException $e) {
-            $this->assertSame('Only an in_progress session can be completed.', $e->getMessage());
+            $this->assertSame('Only a delivering session can be completed.', $e->getMessage());
         }
 
         $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => Session::STATUS_CANCELLED]);
     }
 
     /**
-     * An in_progress session with $players recording players plus the creating
+     * A delivering session with $players recording players plus the creating
      * Coach. Returns [$team, $coach, $session, User[] $players, SessionParticipant[] $parts]
      * where $parts is keyed by user id.
      */
-    private function recordingSession(int $players = 2, string $status = Session::STATUS_IN_PROGRESS): array
+    private function recordingSession(int $players = 2, string $status = Session::STATUS_DELIVERING): array
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
         $session = $this->createSession($team, $coach, $status);
@@ -250,7 +264,7 @@ class SessionCompletionTest extends TestCase
         $this->actingAs($coach, 'sanctum')
             ->postJson("/api/sessions/{$session->id}/complete", ['game_events' => $this->stubGameEvents()])
             ->assertStatus(422)
-            ->assertJsonPath('message', 'Only an in_progress session can be completed.');
+            ->assertJsonPath('message', 'Only a delivering session can be completed.');
 
         $this->assertDatabaseHas('app_sessions', ['id' => $session->id, 'status' => $status]);
     }
@@ -277,12 +291,16 @@ class SessionCompletionTest extends TestCase
 
     public function test_completion_completes_a_player_who_stopped_early(): void
     {
-        [, $coach, $session, $players, $parts] = $this->recordingSession(2);
+        [, $coach, $session, $players, $parts] = $this->recordingSession(2, Session::STATUS_IN_PROGRESS);
         AodRecord::factory()->for($parts[$players[0]->id])->create();
         VodRecord::factory()->for($parts[$players[0]->id])->create();
 
         $this->actingAs($players[1], 'sanctum')
             ->postJson("/api/sessions/{$session->id}/stop-recording")
+            ->assertOk();
+
+        $this->actingAs($coach, 'sanctum')
+            ->postJson("/api/sessions/{$session->id}/transitions", ['to' => 'delivering'])
             ->assertOk();
 
         $this->actingAs($coach, 'sanctum')

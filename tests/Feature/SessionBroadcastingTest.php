@@ -314,7 +314,7 @@ class SessionBroadcastingTest extends TestCase
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
         $player = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
-        $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
+        $session = $this->createSession($team, $coach, Session::STATUS_DELIVERING);
         $this->addParticipant($session, $player, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
 
         $this->actingAs($player, 'sanctum')
@@ -358,7 +358,7 @@ class SessionBroadcastingTest extends TestCase
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
         $one = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
         $two = $this->makeAndAttachMember($team, 'player', 'Player', $coach);
-        $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
+        $session = $this->createSession($team, $coach, Session::STATUS_DELIVERING);
         $this->addParticipant($session, $coach, 'main_coach');
         $this->addParticipant($session, $one, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);
         $this->addParticipant($session, $two, 'player', SessionParticipant::PARTICIPANT_STATUS_RECORDING);

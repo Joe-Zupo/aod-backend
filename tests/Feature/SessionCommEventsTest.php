@@ -45,13 +45,13 @@ class SessionCommEventsTest extends TestCase
     }
 
     /**
-     * An in_progress session with $players recording players plus the creating
+     * A delivering session with $players recording players plus the creating
      * Coach. Returns [$team, $coach, $session, User[] $players].
      */
     private function recordingSession(int $players = 1): array
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
-        $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
+        $session = $this->createSession($team, $coach, Session::STATUS_DELIVERING);
         $this->addParticipant($session, $coach, 'main_coach');
 
         $users = [];

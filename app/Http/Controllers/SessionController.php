@@ -24,9 +24,10 @@ class SessionController extends Controller
     /**
      * Session List
      *
-     * Return the team's current non-terminal (queuing or in_progress) session,
-     * if any, as `live_session`, and every other session as a paginated,
-     * searchable, date-ordered `past_sessions` list. Never loads participants.
+     * Return the team's current non-terminal (queuing, in_progress or
+     * delivering) session, if any, as `live_session`, and every other session
+     * as a paginated, searchable, date-ordered `past_sessions` list. Never
+     * loads participants.
      * Restricted to any active member of the team.
      */
     public function index(Request $request, Team $team): JsonResponse
@@ -63,8 +64,8 @@ class SessionController extends Controller
      * Create a Session for the given team and add the creating Coach as its
      * first Session Participant. Restricted to any active Coach, main or
      * assistant. Rejected if the team already has a non-terminal
-     * (queuing/in_progress) session. The Timeline is created later, when the
-     * session is completed and enters processing.
+     * (queuing/in_progress/delivering) session. The Timeline is created later,
+     * when the session is completed and enters processing.
      */
     public function store(StoreSessionRequest $request, Team $team): JsonResponse
     {
@@ -205,7 +206,11 @@ class SessionController extends Controller
      *
      * A coach-driven state move that carries no payload. `to` names the move:
      *
-     * - `cancelled` — abort the session (from `queuing` or `in_progress`).
+     * - `delivering` — end the run so every player uploads (from `in_progress`).
+     * - `queuing` — stop the team's recording and return to the lobby (from
+     *   `in_progress` or `delivering`). Discards every recording.
+     * - `cancelled` — abort the session (from `queuing`, `in_progress` or
+     *   `delivering`).
      * - `reanalyze` — rebuild the timeline from the stored recordings using the
      *   team's current settings; returns 202 and re-opens at `timeline_ready`
      *   once detection finishes. Discards all timeline-management work.
@@ -231,6 +236,7 @@ class SessionController extends Controller
 
         try {
             match ($to) {
+                Session::STATUS_DELIVERING => $session->finishRun(),
                 Session::STATUS_CANCELLED => $session->cancel(),
                 Session::TRANSITION_REANALYZE => $session->reanalyze(),
                 Session::STATUS_ANALYSIS_READY => $session->markAnalysisReady(),
@@ -390,12 +396,13 @@ class SessionController extends Controller
     /**
      * Complete Session
      *
-     * Move an in_progress session to processing and sweep every recording
-     * participant to completed, once at least one already has a full stored
-     * recording pair (delivered via POST /sessions/{session}/recording).
-     * Restricted to any active Coach on the session's team, not just its
-     * creator. Rejected with 422 if the session is not in_progress or no
-     * participant has a full pair stored.
+     * Move a delivering session to processing, once at least one recording
+     * participant already has a full stored recording pair (delivered via
+     * POST /sessions/{session}/recording). Restricted to any active Coach on
+     * the session's team, not just its creator. Rejected with 422 if the
+     * session is not delivering (an in_progress session must first move to
+     * `delivering` through the transitions endpoint) or no participant has a
+     * full pair stored.
      */
     public function complete(CompleteSessionRequest $request, Session $session): JsonResponse
     {

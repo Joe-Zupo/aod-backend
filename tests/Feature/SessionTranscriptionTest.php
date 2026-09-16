@@ -19,7 +19,7 @@ use Tests\Concerns\CreatesTeamsAndSessions;
 use Tests\TestCase;
 
 /**
- * The completion call now lands an in_progress session on `processing`, the
+ * The completion call now lands a delivering session on `processing`, the
  * first state of the analysis pipeline, creates its Timeline, and fans out one
  * transcription job per stored AOD.
  */
@@ -363,13 +363,13 @@ class SessionTranscriptionTest extends TestCase
     }
 
     /**
-     * An in_progress session with $players recording players plus the creating
+     * A delivering session with $players recording players plus the creating
      * Coach. Returns [$team, $coach, $session, User[] $players].
      */
     private function recordingSession(int $players = 1): array
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
-        $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
+        $session = $this->createSession($team, $coach, Session::STATUS_DELIVERING);
         $this->addParticipant($session, $coach, 'main_coach');
 
         $users = [];

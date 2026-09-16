@@ -44,6 +44,13 @@ class Session extends Model
 
     public const STATUS_IN_PROGRESS = 'in_progress';
 
+    /**
+     * The run is over and every client is finishing its recorder and uploading.
+     * Uploads stay legal here and completion is legal only from here (see
+     * docs/adr/0015-end-of-run-and-end-of-participation.md).
+     */
+    public const STATUS_DELIVERING = 'delivering';
+
     public const STATUS_PROCESSING = 'processing';
 
     /**
@@ -78,10 +85,11 @@ class Session extends Model
     public const TRANSITION_REANALYZE = 'reanalyze';
 
     /**
-     * Every accepted `to` value on the transitions endpoint: three target
+     * Every accepted `to` value on the transitions endpoint: five target
      * statuses plus the `reanalyze` action.
      */
     public const TRANSITIONS = [
+        self::STATUS_DELIVERING,
         self::STATUS_CANCELLED,
         self::TRANSITION_REANALYZE,
         self::STATUS_ANALYSIS_READY,
@@ -92,14 +100,14 @@ class Session extends Model
     public const STATUS_CANCELLED = 'cancelled';
 
     /**
-     * The two statuses that count as a live session for the team: they block a
+     * The statuses that count as a live session for the team: they block a
      * second session, drive the index's live_session slot, and keep the
      * auto-cancel and consent windows open. `processing` is deliberately not
      * among them. Once the coach has completed the session its recording is
      * done and stored, so the team is free to start the next scrim while
      * analysis runs in the background.
      */
-    public const NON_TERMINAL_STATUSES = [self::STATUS_QUEUING, self::STATUS_IN_PROGRESS];
+    public const NON_TERMINAL_STATUSES = [self::STATUS_QUEUING, self::STATUS_IN_PROGRESS, self::STATUS_DELIVERING];
 
     /**
      * Prefix of every Session's human-facing code. The full code is this plus
@@ -182,7 +190,7 @@ class Session extends Model
     }
 
     /**
-     * Sessions still in flight (queuing or in_progress) — the single place
+     * Sessions still in flight (queuing, in_progress or delivering) — the single place
      * that defines "does this team have a session blocking a new one."
      */
     public function scopeNonTerminal(Builder $query): Builder
@@ -323,6 +331,28 @@ class Session extends Model
         });
 
         $this->flushDiscardedRecordings();
+    }
+
+    /**
+     * End the run: move this session from `in_progress` to `delivering`, so
+     * every client finishes its recorder and uploads before the Coach completes
+     * (docs/adr/0015-end-of-run-and-end-of-participation.md).
+     *
+     * @throws SessionTransitionException when the session is not in_progress
+     */
+    public function finishRun(): void
+    {
+        DB::transaction(function () {
+            $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
+
+            if ($status !== self::STATUS_IN_PROGRESS) {
+                throw new SessionTransitionException('Only a recording session can be finished.');
+            }
+
+            $this->update(['status' => self::STATUS_DELIVERING]);
+
+            Broadcasting::safely(new SessionStatusChanged($this));
+        });
     }
 
     /**
@@ -549,7 +579,7 @@ class Session extends Model
     }
 
     /**
-     * Complete this in_progress session: move it to `processing`, sweep every
+     * Complete this delivering session: move it to `processing`, sweep every
      * `recording` participant to `completed`, and dispatch transcription for
      * whatever AOD recordings are already stored (delivered separately, per
      * participant, via `uploadRecording()` — see
@@ -558,7 +588,7 @@ class Session extends Model
      * guard beyond session status: at least one `recording` participant must
      * already have both an AodRecord and a VodRecord stored.
      *
-     * @throws SessionTransitionException when the session is not in_progress,
+     * @throws SessionTransitionException when the session is not delivering,
      *                                    or no recording participant has a
      *                                    full stored pair
      */
@@ -569,8 +599,12 @@ class Session extends Model
         DB::transaction(function () use ($gameEvents, &$transcripts) {
             $status = self::whereKey($this->getKey())->lockForUpdate()->value('status');
 
-            if ($status !== self::STATUS_IN_PROGRESS) {
-                throw new SessionTransitionException('Only an in_progress session can be completed.');
+            if ($status === self::STATUS_IN_PROGRESS) {
+                throw new SessionTransitionException('Finish the run before completing it: move the session to delivering first.');
+            }
+
+            if ($status !== self::STATUS_DELIVERING) {
+                throw new SessionTransitionException('Only a delivering session can be completed.');
             }
 
             // `whereNull('left_at')` matters as much as the status, and matches

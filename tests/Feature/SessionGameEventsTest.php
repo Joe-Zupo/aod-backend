@@ -82,7 +82,7 @@ class SessionGameEventsTest extends TestCase
 
         $this->assertDatabaseHas('app_sessions', [
             'id' => $session->id,
-            'status' => Session::STATUS_IN_PROGRESS,
+            'status' => Session::STATUS_DELIVERING,
         ]);
         $this->assertDatabaseCount('game_events', 0);
         $this->assertDatabaseCount('aod_records', 0);
@@ -177,7 +177,7 @@ class SessionGameEventsTest extends TestCase
 
         $this->assertDatabaseHas('app_sessions', [
             'id' => $session->id,
-            'status' => Session::STATUS_IN_PROGRESS,
+            'status' => Session::STATUS_DELIVERING,
         ]);
         $this->assertDatabaseCount('game_events', 0);
         $this->assertDatabaseCount('aod_records', 0);
@@ -320,13 +320,13 @@ class SessionGameEventsTest extends TestCase
     }
 
     /**
-     * An in_progress session with $players recording players plus the creating
+     * A delivering session with $players recording players plus the creating
      * Coach. Returns [$team, $coach, $session, User[] $players].
      */
     private function recordingSession(int $players = 2): array
     {
         [$team, $coach] = $this->makeTeamWithMember('main_coach');
-        $session = $this->createSession($team, $coach, Session::STATUS_IN_PROGRESS);
+        $session = $this->createSession($team, $coach, Session::STATUS_DELIVERING);
         $this->addParticipant($session, $coach, 'main_coach');
 
         $users = [];
